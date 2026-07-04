@@ -500,10 +500,20 @@ async function initCam(){
     if(!camLoopOn){ camLoopOn=true; camLoop(); }
     return;
   }
+  let st=null;
   try{
     chip.textContent='カメラ準備中…';
-    if(!window.FaceMesh) await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js');
-    const st=await navigator.mediaDevices.getUserMedia({video:{width:640,height:480}});
+    if(!window.FaceMesh){
+      try{ await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js'); }
+      catch(e){ throw Object.assign(new Error('cdn'),{name:'CdnError'}); }
+    }
+    try{
+      st=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:640},height:{ideal:480}}});
+    }catch(e1){
+      if(e1.name==='OverconstrainedError'||e1.name==='ConstraintNotSatisfiedError'){
+        st=await navigator.mediaDevices.getUserMedia({video:true});   // 制約を緩めて再試行
+      } else throw e1;
+    }
     camVideo=document.createElement('video'); camVideo.srcObject=st; camVideo.muted=true; camVideo.playsInline=true;
     await camVideo.play();
     camFM=new window.FaceMesh({locateFile:f=>'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/'+f});
@@ -512,7 +522,17 @@ async function initCam(){
     chip.textContent='カメラ追従中';
     if(!camLoopOn){ camLoopOn=true; camLoop(); }
   }catch(err){
-    chip.textContent='カメラ不可'; auto.cam=false; chip.classList.remove('on');
+    console.error('camera init failed:', err);
+    if(st){ try{ st.getTracks().forEach(t=>t.stop()); }catch(e){} }   // 後始末して次回リトライ可能に
+    camVideo=null; camFM=null;
+    const msg=
+      err.name==='NotAllowedError'||err.name==='PermissionDeniedError' ? 'カメラ許可が必要' :
+      err.name==='NotReadableError'||err.name==='TrackStartError' ? 'カメラ使用中(他アプリ)' :
+      err.name==='NotFoundError'||err.name==='DevicesNotFoundError' ? 'カメラ未検出' :
+      err.name==='CdnError' ? 'モデル読込失敗(通信)' :
+      !window.isSecureContext ? 'httpsが必要' : 'カメラ不可';
+    chip.textContent=msg;
+    auto.cam=false; chip.classList.remove('on');
   }
 }
 function onFace(res){
