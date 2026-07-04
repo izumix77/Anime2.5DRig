@@ -687,14 +687,14 @@ function tick(now){
     tgt.angleZ=clamp(tgt.angleZ+rnd.az,-1,1); tgt.body=clamp(tgt.body+rnd.bd,-1,1);
     tgt.eyeX=clamp(tgt.eyeX+rnd.ex,-1,1); tgt.eyeY=clamp(tgt.eyeY+rnd.ey,-1,1);
   }
-  if(auto.talk&&!camLive){
+  if(auto.talk){
     if(now>nextTalkState){ talkOn=!talkOn; nextTalkState=now+(talkOn?1200+Math.random()*2200:600+Math.random()*1800); }
     if(talkOn&&now>nextSyl){ nextSyl=now+70+Math.random()*110; talkTgt=Math.random()<0.25?0.04:0.25+Math.random()*0.75; }
     if(!talkOn)talkTgt=0;
     talkV+=(talkTgt-talkV)*Math.min(1,dt*22);
     tgt.mouthOpen=Math.max(tgt.mouthOpen,talkV);
   }
-  if(auto.blink&&!camLive){
+  if(auto.blink){
     if(blinkT<0 && now>nextBlink){ blinkT=0; nextBlink=now+1600+Math.random()*3800; if(Math.random()<0.18)nextBlink=now+280; }
     if(blinkT>=0){ blinkT+=dt;
       const d=blinkT; let v;
