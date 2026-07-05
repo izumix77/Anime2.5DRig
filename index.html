@@ -129,12 +129,23 @@ header h1{letter-spacing:.05em}
         <button class="btn" data-preset="winkR">ウインク右</button>
       </div>
     </div>
+    <div class="sec"><h2>ポーズプリセット</h2>
+      <div class="btns">
+        <button class="btn" id="btnPoseSave">現在を保存</button>
+        <button class="btn" id="btnPosePlay">▶ 連続再生</button>
+        <button class="btn" id="btnPoseClear">全消去</button>
+      </div>
+      <div class="toggles" id="poseList" style="margin-top:8px"></div>
+      <div style="font-size:10px;color:var(--sub);margin-top:6px">クリックで適用 / Shift+クリックで削除。全スライダー値を保存します</div>
+    </div>
     <div class="sec"><h2>顔の向き</h2>
       <div class="row"><label>角度 X</label><input type="range" id="pAngleX" min="-1" max="1" step="0.01" value="0"><span class="val"></span></div>
       <div class="row"><label>角度 Y</label><input type="range" id="pAngleY" min="-1" max="1" step="0.01" value="0"><span class="val"></span></div>
       <div class="row"><label>角度 Z</label><input type="range" id="pAngleZ" min="-1" max="1" step="0.01" value="0"><span class="val"></span></div>
       <div class="row"><label>3Dシェル</label><input type="range" id="pShell" min="0" max="1" step="0.01" value="0.8"><span class="val"></span></div>
       <div class="row"><label>鼻の高さ</label><input type="range" id="pNose" min="0" max="0.6" step="0.01" value="0.22"><span class="val"></span></div>
+      <div class="row"><label>顎の高さ</label><input type="range" id="pChin" min="0" max="0.6" step="0.01" value="0.15"><span class="val"></span></div>
+      <div class="row"><label>Eライン</label><input type="range" id="pEline" min="-0.3" max="0.3" step="0.01" value="0"><span class="val"></span></div>
     </div>
     <div class="sec"><h2>目</h2>
       <div class="row"><label>左目の開き</label><input type="range" id="pEyeL" min="0" max="1" step="0.01" value="1"><span class="val"></span></div>
@@ -255,6 +266,9 @@ function applyRig(rig){
     }
     HEAD.nose={cx:ncx, cy:ncy,
                sx:(A.face.x1-A.face.x0)*0.11, sy:(A.face.y1-A.face.y0)*0.14};
+    // chin tip bump; together with the nose it defines the E-line ridge
+    HEAD.chin={cx:A.face.cx, cy:A.face.y1-(A.face.y1-A.face.y0)*0.06,
+               sx:(A.face.x1-A.face.x0)*0.18, sy:(A.face.y1-A.face.y0)*0.12};
   }
   for(const Lr of rig.layers){
     const L=Object.assign({},Lr);
@@ -360,7 +374,7 @@ const P = { angleX:0, angleY:0, angleZ:0, eyeOpenL:1, eyeOpenR:1, eyeX:0, eyeY:0
             mouthOpen:0, mouthForm:0, mouthCY:0, body:0, physAmp:2, soft:2,
             browAngL:0, browAngR:0, browAngSym:0, bangL:0, bangC:0, bangR:0,
             armY:0, armPos:0, bust:2.5, bustY:1, irisScale:1, mouthEase:0.45, eyeEase:0.3,
-            fhAmp:2, fhSoft:0.4, shell:0.8, noseAmp:0.22 };
+            fhAmp:2, fhSoft:0.4, shell:0.8, noseAmp:0.22, chinAmp:0.15, elineAmp:0 };
 const DEFAULTS = Object.assign({}, P);
 let lastPsd=null, lastPre=null;
 const T = Object.assign({}, P);
@@ -373,7 +387,7 @@ const sliders = { pAngleX:'angleX',pAngleY:'angleY',pAngleZ:'angleZ',pEyeL:'eyeO
   pBrowAngL:'browAngL',pBrowAngR:'browAngR',pBrowAngSym:'browAngSym',
   pBangL:'bangL',pBangC:'bangC',pBangR:'bangR',pArmY:'armY',pArmPos:'armPos',
   pBust:'bust',pBustY:'bustY',pIrisScale:'irisScale',pMouthEase:'mouthEase',pEyeEase:'eyeEase',
-  pFhAmp:'fhAmp',pFhSoft:'fhSoft',pShell:'shell',pNose:'noseAmp' };
+  pFhAmp:'fhAmp',pFhSoft:'fhSoft',pShell:'shell',pNose:'noseAmp',pChin:'chinAmp',pEline:'elineAmp' };
 for(const id in sliders){
   const el=document.getElementById(id), key=sliders[id], v=el.parentNode.querySelector('.val');
   const upd=()=>{ T[key]=parseFloat(el.value); v.textContent=el.value; }; el.addEventListener('input',upd); upd();
@@ -407,6 +421,44 @@ document.querySelectorAll('[data-preset]').forEach(b=>b.addEventListener('click'
     const p=presets[name]; for(const k in p) setSlider(k,p[k]);
   }
 }));
+// ---------- pose presets (full slider snapshots, sequential eased playback) ----------
+let poses=[];
+try{ poses=JSON.parse(localStorage.getItem('a25d_poses')||'[]'); }catch(err){ poses=[]; }
+const posePlay={on:false, idx:-1, t0:0, from:null, to:null, phase:'hold', jit:0};
+function persistPoses(){ try{ localStorage.setItem('a25d_poses',JSON.stringify(poses)); }catch(err){} }
+function renderPoses(){
+  const box=document.getElementById('poseList');
+  box.innerHTML='';
+  poses.forEach((p,i)=>{
+    const el=document.createElement('div'); el.className='tg'; el.textContent=p.name;
+    el.title='クリックで適用 / Shift+クリックで削除';
+    el.addEventListener('click',ev=>{
+      if(ev.shiftKey){ poses.splice(i,1); persistPoses(); renderPoses(); return; }
+      for(const k in p.params) setSlider(k,p.params[k]);
+    });
+    box.appendChild(el);
+  });
+}
+renderPoses();
+document.getElementById('btnPoseSave').addEventListener('click',()=>{
+  poses.push({name:'P'+(poses.length+1), params:Object.assign({},T)});
+  persistPoses(); renderPoses();
+});
+document.getElementById('btnPoseClear').addEventListener('click',()=>{
+  poses=[]; persistPoses(); renderPoses();
+  posePlay.on=false; document.getElementById('btnPosePlay').classList.remove('active');
+});
+document.getElementById('btnPosePlay').addEventListener('click',function(){
+  posePlay.on=!posePlay.on; this.classList.toggle('active',posePlay.on);
+  if(posePlay.on){ posePlay.to=null; posePlay.idx=-1; }
+});
+function nextPose(now){
+  posePlay.from=Object.assign({},cur);
+  posePlay.idx=(posePlay.idx+1)%poses.length;
+  posePlay.to=Object.assign({},poses[posePlay.idx].params);
+  posePlay.phase='move'; posePlay.t0=now; posePlay.jit=Math.random()*1.4;
+}
+
 document.getElementById('btnReset').addEventListener('click',()=>{
   activePreset=null; clearPresetHighlight();
   for(const id in sliders) setSlider(sliders[id], DEFAULTS[sliders[id]]);
@@ -662,8 +714,16 @@ function deform(L, e){
         const r2=u*u+v*v;
         // ellipsoid z + nose-tip bump, continuous at the rim; depth slots become radial offsets
         const ndx=(x-HEAD.nose.cx)/HEAD.nose.sx, ndy=(y-HEAD.nose.cy)/HEAD.nose.sy;
+        const cdx=(x-HEAD.chin.cx)/HEAD.chin.sx, cdy=(y-HEAD.chin.cy)/HEAD.chin.sy;
+        // E-line: vertical ridge between nose tip and chin tip; +
+        // pushes the mouth area out (convex), - tucks it behind the line (sharp anime profile)
+        let elr=0;
+        const et=(y-HEAD.nose.cy)/Math.max(1,HEAD.chin.cy-HEAD.nose.cy);
+        if(et>0&&et<1) elr=Math.sin(Math.PI*et)*Math.exp(-ndx*ndx);
         const zs=Math.sqrt(Math.max(0,1-Math.min(1,r2)))
                + e.noseAmp*Math.exp(-(ndx*ndx+ndy*ndy))
+               + e.chinAmp*Math.exp(-(cdx*cdx+cdy*cdy))
+               + e.elineAmp*elr
                + (dd-1)*0.55;
         const yaw=e.angleX*0.45, pit=e.angleY*0.32;
         const cyw=Math.cos(yaw), syw=Math.sin(yaw);
@@ -733,6 +793,21 @@ function tick(now){
   const dt=Math.min(0.05,(now-last)/1000); last=now;
   const t=now/1000;
   let tgt=Object.assign({},T);
+  // pose playback: eased move (1.1s) to next pose, then hold (1.3-2.7s), loop.
+  // idle/blink/talk still layer on top so held poses keep breathing.
+  if(posePlay.on&&poses.length){
+    if(!posePlay.to) nextPose(now);
+    const elp=(now-posePlay.t0)/1000, TT=1.1;
+    if(posePlay.phase==='move'){
+      const s=smooth(elp/TT);
+      for(const k in posePlay.to) if(k in tgt&&posePlay.from[k]!==undefined)
+        tgt[k]=posePlay.from[k]+(posePlay.to[k]-posePlay.from[k])*s;
+      if(elp>=TT){ posePlay.phase='hold'; posePlay.t0=now; }
+    } else {
+      for(const k in posePlay.to) if(k in tgt) tgt[k]=posePlay.to[k];
+      if(elp>=1.3+posePlay.jit) nextPose(now);
+    }
+  }
   const camLive=auto.cam&&cam.live;
   if(camLive){
     tgt.angleX=clamp(cam.ax,-1,1); tgt.angleY=clamp(cam.ay,-1,1); tgt.angleZ=clamp(cam.az,-1,1);
