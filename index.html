@@ -142,6 +142,8 @@ header h1{letter-spacing:.05em}
       <div class="row"><label>角度 X</label><input type="range" id="pAngleX" min="-1" max="1" step="0.01" value="0"><span class="val"></span></div>
       <div class="row"><label>角度 Y</label><input type="range" id="pAngleY" min="-1" max="1" step="0.01" value="0"><span class="val"></span></div>
       <div class="row"><label>角度 Z</label><input type="range" id="pAngleZ" min="-1" max="1" step="0.01" value="0"><span class="val"></span></div>
+    </div>
+    <div class="sec"><h2>疑似3D</h2>
       <div class="row"><label>3Dシェル</label><input type="range" id="pShell" min="0" max="1" step="0.01" value="0.8"><span class="val"></span></div>
       <div class="row"><label>鼻の高さ</label><input type="range" id="pNose" min="0" max="0.6" step="0.01" value="0.22"><span class="val"></span></div>
       <div class="row"><label>顎の高さ</label><input type="range" id="pChin" min="0" max="0.6" step="0.01" value="0.15"><span class="val"></span></div>
@@ -439,16 +441,32 @@ function profLUTLookup(v){
 function persistProfile(){
   try{ localStorage.setItem('a25d_profile', JSON.stringify({points:profPoints, enabled:profEnabled})); }catch(err){}
 }
-(function loadProfile(){
+// one-way sync curve→sliders: derive the legacy gaussian slider values from the
+// curve points so the curve stays the single source of truth even with カーブ使用 OFF.
+// (moving the sliders never modifies the curve)
+function syncProfToSliders(){
+  const pts=profPoints;
+  setSlider('noseAmp', clamp(pts[2].z, 0, 0.6));
+  setSlider('chinAmp', clamp(pts[4].z, 0, 0.6));
+  // E-line: deviation of 上唇 from the straight 鼻先→顎先 line at 上唇's v
+  const dv=pts[4].v-pts[2].v;
+  const t=Math.abs(dv)<1e-6?0.5:(pts[3].v-pts[2].v)/dv;
+  const line=pts[2].z+(pts[4].z-pts[2].z)*t;
+  setSlider('elineAmp', clamp(pts[3].z-line, -0.3, 0.3));
+}
+const profWasSaved=(function loadProfile(){
   try{
     const saved=JSON.parse(localStorage.getItem('a25d_profile')||'null');
     if(saved&&Array.isArray(saved.points)&&saved.points.length===PROF_DEFAULTS.length){
       profPoints=saved.points.map(p=>({v:+p.v,z:+p.z}));
       profEnabled=!!saved.enabled;
+      return true;
     }
   }catch(err){}
+  return false;
 })();
 rebuildProfLUT();
+if(profWasSaved) syncProfToSliders();   // pristine first visit keeps the P defaults
 
 const profCv=document.getElementById('profCv'), profCx=profCv.getContext('2d');
 const tgProfCurve=document.getElementById('tgProfCurve');
@@ -458,7 +476,7 @@ tgProfCurve.addEventListener('click',()=>{
 });
 document.getElementById('btnProfReset').addEventListener('click',()=>{
   profPoints=PROF_DEFAULTS.map(p=>Object.assign({},p));
-  rebuildProfLUT(); drawProfCv(); persistProfile();
+  rebuildProfLUT(); drawProfCv(); syncProfToSliders(); persistProfile();
 });
 
 // widget mapping: x = z in [-0.4,0.8] -> [8,260]; y = v in [0,1] -> [8,142]
@@ -525,12 +543,12 @@ window.addEventListener('mousemove',ev=>{
   const eps=0.01;
   v=clamp(v, i===0?0:lo+eps, i===pts.length-1?1:hi-eps);
   pts[i].z=z; pts[i].v=v;
-  rebuildProfLUT(); drawProfCv();
+  rebuildProfLUT(); drawProfCv(); syncProfToSliders();
 });
 window.addEventListener('mouseup',()=>{
   if(profDrag>=0){ profDrag=-1; profCv.style.cursor='grab'; persistProfile(); }
 });
-window.__setProfilePoints=function(pts){ profPoints=pts.map(p=>Object.assign({},p)); rebuildProfLUT(); drawProfCv(); }; // test hook
+window.__setProfilePoints=function(pts){ profPoints=pts.map(p=>Object.assign({},p)); rebuildProfLUT(); drawProfCv(); syncProfToSliders(); }; // test hook
 
 [['tgIdle','idle'],['tgBlink','blink'],['tgRand','rand'],['tgTalk','talk'],['tgCam','cam'],['tgMouse','mouse'],['tgMic','mic'],['tgPhys','phys']].forEach(([id,key])=>{
   const el=document.getElementById(id);
