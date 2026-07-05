@@ -147,6 +147,14 @@ header h1{letter-spacing:.05em}
       <div class="row"><label>顎の高さ</label><input type="range" id="pChin" min="0" max="0.6" step="0.01" value="0.15"><span class="val"></span></div>
       <div class="row"><label>Eライン</label><input type="range" id="pEline" min="-0.3" max="0.3" step="0.01" value="0"><span class="val"></span></div>
     </div>
+    <div class="sec"><h2>横顔カーブ</h2>
+      <div class="toggles">
+        <div class="tg" id="tgProfCurve">カーブ使用</div>
+        <button class="btn" id="btnProfReset">リセット</button>
+      </div>
+      <canvas id="profCv" width="268" height="150" style="display:block;margin-top:8px;border:1px solid var(--line);border-radius:4px;background:#0a0a0c;cursor:grab"></canvas>
+      <div style="font-size:10px;color:var(--sub);margin-top:6px">点をドラッグして横顔の輪郭を調整（左=奥へ引っ込む / 右=前へ突き出す）</div>
+    </div>
     <div class="sec"><h2>目</h2>
       <div class="row"><label>左目の開き</label><input type="range" id="pEyeL" min="0" max="1" step="0.01" value="1"><span class="val"></span></div>
       <div class="row"><label>右目の開き</label><input type="range" id="pEyeR" min="0" max="1" step="0.01" value="1"><span class="val"></span></div>
@@ -394,6 +402,135 @@ for(const id in sliders){
 }
 function setSlider(key,val){ for(const id in sliders) if(sliders[id]===key){
   const el=document.getElementById(id); el.value=val; el.dispatchEvent(new Event('input')); } }
+
+// ---------- 横顔カーブ (side-profile curve editor) ----------
+// 5 fixed control points, drawn in left-facing side view: widget x = z (depth, nose points right),
+// widget y = v (vertical position, 0=forehead..1=chin). deform() only does a LUT lookup per vertex.
+const PROF_LABELS=['額','鼻根','鼻先','上唇','顎'];
+const PROF_DEFAULTS=[
+  {v:0.06, z:0.10}, {v:0.42, z:0.02}, {v:0.62, z:0.30}, {v:0.78, z:0.06}, {v:0.97, z:0.14}];
+let profPoints=PROF_DEFAULTS.map(p=>Object.assign({},p));
+let profEnabled=false;
+const PROF_LUT_N=64;
+let profLUT=new Float32Array(PROF_LUT_N);
+
+function catmullRom(p0,p1,p2,p3,t){
+  const t2=t*t, t3=t2*t;
+  return 0.5*((2*p1)+(-p0+p2)*t+(2*p0-5*p1+4*p2-p3)*t2+(-p0+3*p1-3*p2+p3)*t3);
+}
+function profEval(v){
+  const pts=profPoints;
+  if(v<=pts[0].v) return pts[0].z;
+  if(v>=pts[pts.length-1].v) return pts[pts.length-1].z;
+  let i=0; while(i<pts.length-2 && v>pts[i+1].v) i++;
+  const p1=pts[i], p2=pts[i+1];
+  const p0=pts[i-1]||p1, p3=pts[i+2]||p2;
+  const span=(p2.v-p1.v)||1e-6, t=(v-p1.v)/span;
+  return catmullRom(p0.z,p1.z,p2.z,p3.z,t);
+}
+function rebuildProfLUT(){
+  for(let i=0;i<PROF_LUT_N;i++) profLUT[i]=profEval(i/(PROF_LUT_N-1));
+}
+function profLUTLookup(v){
+  v=v<0?0:(v>1?1:v);
+  const f=v*(PROF_LUT_N-1), i0=Math.floor(f), i1=Math.min(PROF_LUT_N-1,i0+1), t=f-i0;
+  return profLUT[i0]+(profLUT[i1]-profLUT[i0])*t;
+}
+function persistProfile(){
+  try{ localStorage.setItem('a25d_profile', JSON.stringify({points:profPoints, enabled:profEnabled})); }catch(err){}
+}
+(function loadProfile(){
+  try{
+    const saved=JSON.parse(localStorage.getItem('a25d_profile')||'null');
+    if(saved&&Array.isArray(saved.points)&&saved.points.length===PROF_DEFAULTS.length){
+      profPoints=saved.points.map(p=>({v:+p.v,z:+p.z}));
+      profEnabled=!!saved.enabled;
+    }
+  }catch(err){}
+})();
+rebuildProfLUT();
+
+const profCv=document.getElementById('profCv'), profCx=profCv.getContext('2d');
+const tgProfCurve=document.getElementById('tgProfCurve');
+tgProfCurve.classList.toggle('on',profEnabled);
+tgProfCurve.addEventListener('click',()=>{
+  profEnabled=!profEnabled; tgProfCurve.classList.toggle('on',profEnabled); persistProfile();
+});
+document.getElementById('btnProfReset').addEventListener('click',()=>{
+  profPoints=PROF_DEFAULTS.map(p=>Object.assign({},p));
+  rebuildProfLUT(); drawProfCv(); persistProfile();
+});
+
+// widget mapping: x = z in [-0.4,0.8] -> [8,260]; y = v in [0,1] -> [8,142]
+const PROF_PAD=8, PROF_W=profCv.width-PROF_PAD*2, PROF_H=profCv.height-PROF_PAD*2;
+function profZtoX(z){ return PROF_PAD+((z+0.4)/1.2)*PROF_W; }
+function profXtoZ(x){ return ((x-PROF_PAD)/PROF_W)*1.2-0.4; }
+function profVtoY(v){ return PROF_PAD+v*PROF_H; }
+function profYtoV(y){ return (y-PROF_PAD)/PROF_H; }
+
+function drawProfCv(){
+  const w=profCv.width, h=profCv.height;
+  profCx.clearRect(0,0,w,h);
+  profCx.fillStyle='#0a0a0c'; profCx.fillRect(0,0,w,h);
+  // z=0 reference line (bare ellipsoid surface)
+  const x0=profZtoX(0);
+  profCx.strokeStyle='rgba(255,255,255,.16)'; profCx.lineWidth=1;
+  profCx.beginPath(); profCx.moveTo(x0,PROF_PAD); profCx.lineTo(x0,h-PROF_PAD); profCx.stroke();
+  // curve
+  profCx.strokeStyle='#d43b55'; profCx.lineWidth=2; profCx.beginPath();
+  for(let i=0;i<PROF_LUT_N;i++){
+    const v=i/(PROF_LUT_N-1), z=profLUT[i];
+    const x=profZtoX(z), y=profVtoY(v);
+    if(i===0) profCx.moveTo(x,y); else profCx.lineTo(x,y);
+  }
+  profCx.stroke();
+  // control points + labels
+  profCx.font='9px sans-serif'; profCx.fillStyle='#8d93ad'; profCx.textBaseline='middle';
+  profPoints.forEach((p,i)=>{
+    const x=profZtoX(p.z), y=profVtoY(p.v);
+    profCx.beginPath(); profCx.arc(x,y,4,0,Math.PI*2);
+    profCx.fillStyle='#d43b55'; profCx.fill();
+    profCx.fillStyle='#8d93ad';
+    const label=PROF_LABELS[i];
+    if(x>w-30) profCx.fillText(label,x-8,y-8); else profCx.fillText(label,x+8,y-8);
+  });
+}
+drawProfCv();
+
+let profDrag=-1;
+function profPickPoint(mx,my){
+  let best=-1, bd=14*14;
+  profPoints.forEach((p,i)=>{
+    const dx=mx-profZtoX(p.z), dy=my-profVtoY(p.v), d2=dx*dx+dy*dy;
+    if(d2<bd){ bd=d2; best=i; }
+  });
+  return best;
+}
+function profCvPos(ev){
+  const r=profCv.getBoundingClientRect();
+  return {x:(ev.clientX-r.left)*(profCv.width/r.width), y:(ev.clientY-r.top)*(profCv.height/r.height)};
+}
+profCv.addEventListener('mousedown',ev=>{
+  const pos=profCvPos(ev);
+  profDrag=profPickPoint(pos.x,pos.y);
+  if(profDrag>=0) profCv.style.cursor='grabbing';
+});
+window.addEventListener('mousemove',ev=>{
+  if(profDrag<0) return;
+  const pos=profCvPos(ev);
+  let z=profXtoZ(pos.x), v=profYtoV(pos.y);
+  z=clamp(z,-0.4,0.8);
+  const pts=profPoints, i=profDrag;
+  const lo=i>0?pts[i-1].v:0, hi=i<pts.length-1?pts[i+1].v:1;
+  const eps=0.01;
+  v=clamp(v, i===0?0:lo+eps, i===pts.length-1?1:hi-eps);
+  pts[i].z=z; pts[i].v=v;
+  rebuildProfLUT(); drawProfCv();
+});
+window.addEventListener('mouseup',()=>{
+  if(profDrag>=0){ profDrag=-1; profCv.style.cursor='grab'; persistProfile(); }
+});
+window.__setProfilePoints=function(pts){ profPoints=pts.map(p=>Object.assign({},p)); rebuildProfLUT(); drawProfCv(); }; // test hook
 
 [['tgIdle','idle'],['tgBlink','blink'],['tgRand','rand'],['tgTalk','talk'],['tgCam','cam'],['tgMouse','mouse'],['tgMic','mic'],['tgPhys','phys']].forEach(([id,key])=>{
   const el=document.getElementById(id);
@@ -663,6 +800,8 @@ function deform(L, e){
   const nS=L.strands?L.strands.length:0;
   const bcx=L.x+L.w/2, bcy=L.y+L.h/2;
   const isFH=(bn==='front hair');
+  const useProf=profEnabled;
+  const faceInvH=1/Math.max(1,A.face.y1-A.face.y0);
   for(let k=0;k<n;k+=2){
     let x=b[k], y=b[k+1];
     const vi=k>>1;
@@ -712,19 +851,28 @@ function deform(L, e){
       if(wS>0.001){
         const u=(x-HEAD.cx)/HEAD.rx, v=(y-HEAD.cy)/HEAD.ry;
         const r2=u*u+v*v;
-        // ellipsoid z + nose-tip bump, continuous at the rim; depth slots become radial offsets
-        const ndx=(x-HEAD.nose.cx)/HEAD.nose.sx, ndy=(y-HEAD.nose.cy)/HEAD.nose.sy;
-        const cdx=(x-HEAD.chin.cx)/HEAD.chin.sx, cdy=(y-HEAD.chin.cy)/HEAD.chin.sy;
-        // E-line: vertical ridge between nose tip and chin tip; +
-        // pushes the mouth area out (convex), - tucks it behind the line (sharp anime profile)
-        let elr=0;
-        const et=(y-HEAD.nose.cy)/Math.max(1,HEAD.chin.cy-HEAD.nose.cy);
-        if(et>0&&et<1) elr=Math.sin(Math.PI*et)*Math.exp(-ndx*ndx);
-        const zs=Math.sqrt(Math.max(0,1-Math.min(1,r2)))
+        const ellip=Math.sqrt(Math.max(0,1-Math.min(1,r2)));
+        let zs;
+        if(useProf){
+          // 横顔カーブ: draggable side-profile LUT replaces the nose/chin/E-line gaussians
+          const pv=(y-A.face.y0)*faceInvH;
+          const pdx=(x-HEAD.cx)/(HEAD.nose.sx*1.9);
+          zs = ellip + profLUTLookup(pv)*Math.exp(-pdx*pdx) + (dd-1)*0.55;
+        } else {
+          // ellipsoid z + nose-tip bump, continuous at the rim; depth slots become radial offsets
+          const ndx=(x-HEAD.nose.cx)/HEAD.nose.sx, ndy=(y-HEAD.nose.cy)/HEAD.nose.sy;
+          const cdx=(x-HEAD.chin.cx)/HEAD.chin.sx, cdy=(y-HEAD.chin.cy)/HEAD.chin.sy;
+          // E-line: vertical ridge between nose tip and chin tip; +
+          // pushes the mouth area out (convex), - tucks it behind the line (sharp anime profile)
+          let elr=0;
+          const et=(y-HEAD.nose.cy)/Math.max(1,HEAD.chin.cy-HEAD.nose.cy);
+          if(et>0&&et<1) elr=Math.sin(Math.PI*et)*Math.exp(-ndx*ndx);
+          zs = ellip
                + e.noseAmp*Math.exp(-(ndx*ndx+ndy*ndy))
                + e.chinAmp*Math.exp(-(cdx*cdx+cdy*cdy))
                + e.elineAmp*elr
                + (dd-1)*0.55;
+        }
         const yaw=e.angleX*0.45, pit=e.angleY*0.32;
         const cyw=Math.cos(yaw), syw=Math.sin(yaw);
         const cpt=Math.cos(pit), spt=Math.sin(pit);
