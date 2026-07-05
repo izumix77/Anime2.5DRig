@@ -133,6 +133,7 @@ header h1{letter-spacing:.05em}
       <div class="row"><label>角度 X</label><input type="range" id="pAngleX" min="-1" max="1" step="0.01" value="0"><span class="val"></span></div>
       <div class="row"><label>角度 Y</label><input type="range" id="pAngleY" min="-1" max="1" step="0.01" value="0"><span class="val"></span></div>
       <div class="row"><label>角度 Z</label><input type="range" id="pAngleZ" min="-1" max="1" step="0.01" value="0"><span class="val"></span></div>
+      <div class="row"><label>3Dシェル</label><input type="range" id="pShell" min="0" max="1" step="0.01" value="0.8"><span class="val"></span></div>
     </div>
     <div class="sec"><h2>目</h2>
       <div class="row"><label>左目の開き</label><input type="range" id="pEyeL" min="0" max="1" step="0.01" value="1"><span class="val"></span></div>
@@ -216,7 +217,7 @@ gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
 
 // ---------- model state (mutable, rebuilt per PSD) ----------
-let layers=[], A=null, CW=768, CH=768, FS=1, NP=null, BP=null, FC=null, CHEST=null;
+let layers=[], A=null, CW=768, CH=768, FS=1, NP=null, BP=null, FC=null, CHEST=null, HEAD=null;
 const bounce={x:0,v:0,dy:0};
 
 function mkTex(imgData){
@@ -236,6 +237,11 @@ function applyRig(rig){
   NP=A.neckPivot; BP=A.bodyPivot; FC={x:A.face.cx,y:A.face.cy};
   CHEST={cx:NP.cx, cy:A.neckBottom+(A.face.y1-A.face.y0)*0.60,
          rx:(A.face.x1-A.face.x0)*0.60, ry:(A.face.y1-A.face.y0)*0.45};
+  // 2.5D shell: head approximated as an ellipsoid fit to the face bbox.
+  // rz controls how far the "nose plane" sits in front of the neck axis.
+  HEAD={cx:A.face.cx, cy:A.face.y0+(A.face.y1-A.face.y0)*0.45,
+        rx:(A.face.x1-A.face.x0)*0.62, ry:(A.face.y1-A.face.y0)*0.72,
+        rz:(A.face.x1-A.face.x0)*0.45};
   for(const Lr of rig.layers){
     const L=Object.assign({},Lr);
     const cell=(L.phys?30:42)*Math.max(0.6,CW/768);
@@ -340,7 +346,7 @@ const P = { angleX:0, angleY:0, angleZ:0, eyeOpenL:1, eyeOpenR:1, eyeX:0, eyeY:0
             mouthOpen:0, mouthForm:0, mouthCY:0, body:0, physAmp:2, soft:2,
             browAngL:0, browAngR:0, browAngSym:0, bangL:0, bangC:0, bangR:0,
             armY:0, armPos:0, bust:2.5, bustY:1, irisScale:1, mouthEase:0.45, eyeEase:0.3,
-            fhAmp:2, fhSoft:0.4 };
+            fhAmp:2, fhSoft:0.4, shell:0.8 };
 const DEFAULTS = Object.assign({}, P);
 let lastPsd=null, lastPre=null;
 const T = Object.assign({}, P);
@@ -353,7 +359,7 @@ const sliders = { pAngleX:'angleX',pAngleY:'angleY',pAngleZ:'angleZ',pEyeL:'eyeO
   pBrowAngL:'browAngL',pBrowAngR:'browAngR',pBrowAngSym:'browAngSym',
   pBangL:'bangL',pBangC:'bangC',pBangR:'bangR',pArmY:'armY',pArmPos:'armPos',
   pBust:'bust',pBustY:'bustY',pIrisScale:'irisScale',pMouthEase:'mouthEase',pEyeEase:'eyeEase',
-  pFhAmp:'fhAmp',pFhSoft:'fhSoft' };
+  pFhAmp:'fhAmp',pFhSoft:'fhSoft',pShell:'shell' };
 for(const id in sliders){
   const el=document.getElementById(id), key=sliders[id], v=el.parentNode.querySelector('.val');
   const upd=()=>{ T[key]=parseFloat(el.value); v.textContent=el.value; }; el.addEventListener('input',upd); upd();
@@ -632,8 +638,26 @@ function deform(L, e){
       const rx2=rx*cz-ry*sz, ry2=rx*sz+ry*cz;
       x+=(rx2-rx)*hw; y+=(ry2-ry)*hw;
       const dd=L.depth;
-      x += hw*FS*( e.angleX*(14+40*(dd-1)) + e.angleX*(NP.cy-y)*0.028 );
-      y += hw*FS*( -e.angleY*(9+30*(dd-1)) - e.angleY*(dd-1)*(y-FC.y)*0.05 );
+      // A) legacy parallax + shear
+      const px = x + hw*FS*( e.angleX*(14+40*(dd-1)) + e.angleX*(NP.cy-y)*0.028 );
+      const py = y + hw*FS*( -e.angleY*(9+30*(dd-1)) - e.angleY*(dd-1)*(y-FC.y)*0.05 );
+      // B) 2.5D shell: lift vertex onto head ellipsoid, rotate in 3D, reproject
+      const wS = e.shell*hw;
+      if(wS>0.001){
+        const u=(x-HEAD.cx)/HEAD.rx, v=(y-HEAD.cy)/HEAD.ry;
+        const r2=u*u+v*v;
+        // ellipsoid z, continuous at the rim; depth slots become radial offsets
+        const zs=Math.sqrt(Math.max(0,1-Math.min(1,r2))) + (dd-1)*0.55;
+        const yaw=e.angleX*0.45, pit=e.angleY*0.32;
+        const cyw=Math.cos(yaw), syw=Math.sin(yaw);
+        const cpt=Math.cos(pit), spt=Math.sin(pit);
+        let X=u*HEAD.rx, Y=v*HEAD.ry, Z=zs*HEAD.rz;
+        const X2=X*cyw+Z*syw, Z2=-X*syw+Z*cyw;      // yaw around vertical axis
+        const Y2=Y*cpt-Z2*spt, Z3=Y*spt+Z2*cpt;     // pitch around horizontal axis
+        const f=HEAD.rz*5.0, sc=f/(f-Z3*0.5);        // damped perspective
+        const sx=HEAD.cx+X2*sc, sy=HEAD.cy+Y2*sc;
+        x=px+(sx-px)*wS; y=py+(sy-py)*wS;
+      } else { x=px; y=py; }
     }
     // --- breathing ---
     y -= (L.group==='body'?e.breath*2.0:e.breathHead*1.6)*FS;
