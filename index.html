@@ -148,6 +148,8 @@ header h1{letter-spacing:.05em}
       <div class="row"><label>鼻の高さ</label><input type="range" id="pNose" min="0" max="0.6" step="0.01" value="0.22"><span class="val"></span></div>
       <div class="row"><label>顎の高さ</label><input type="range" id="pChin" min="0" max="0.6" step="0.01" value="0.15"><span class="val"></span></div>
       <div class="row"><label>Eライン</label><input type="range" id="pEline" min="-0.3" max="0.3" step="0.01" value="0"><span class="val"></span></div>
+      <div class="row"><label>前髪の浮き</label><input type="range" id="pHairGap" min="0" max="0.5" step="0.01" value="0.18"><span class="val"></span></div>
+      <div class="row"><label>後髪の奥行き</label><input type="range" id="pBackDepth" min="0" max="0.8" step="0.01" value="0.35"><span class="val"></span></div>
     </div>
     <div class="sec"><h2>横顔カーブ</h2>
       <div class="toggles">
@@ -239,7 +241,7 @@ gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
 
 // ---------- model state (mutable, rebuilt per PSD) ----------
-let layers=[], A=null, CW=768, CH=768, FS=1, NP=null, BP=null, FC=null, CHEST=null, HEAD=null;
+let layers=[], A=null, CW=768, CH=768, FS=1, NP=null, BP=null, FC=null, CHEST=null, HEAD=null, HAIR=null;
 const bounce={x:0,v:0,dy:0};
 
 function mkTex(imgData){
@@ -280,6 +282,10 @@ function applyRig(rig){
     HEAD.chin={cx:A.face.cx, cy:A.face.y1-(A.face.y1-A.face.y0)*0.06,
                sx:(A.face.x1-A.face.x0)*0.18, sy:(A.face.y1-A.face.y0)*0.12};
   }
+  // scalp shell: slightly larger + higher ellipsoid for the hair layers, so the
+  // bangs float above the forehead and the back hair reads as a mass behind the head
+  HAIR={cx:HEAD.cx, cy:HEAD.cy-HEAD.ry*0.06,
+        rx:HEAD.rx*1.10, ry:HEAD.ry*1.10, rz:HEAD.rz*1.05};
   for(const Lr of rig.layers){
     const L=Object.assign({},Lr);
     const cell=(L.phys?30:42)*Math.max(0.6,CW/768);
@@ -384,7 +390,8 @@ const P = { angleX:0, angleY:0, angleZ:0, eyeOpenL:1, eyeOpenR:1, eyeX:0, eyeY:0
             mouthOpen:0, mouthForm:0, mouthCY:0, body:0, physAmp:2, soft:2,
             browAngL:0, browAngR:0, browAngSym:0, bangL:0, bangC:0, bangR:0,
             armY:0, armPos:0, bust:2.5, bustY:1, irisScale:1, mouthEase:0.45, eyeEase:0.3,
-            fhAmp:2, fhSoft:0.4, shell:0.8, noseAmp:0.22, chinAmp:0.15, elineAmp:0 };
+            fhAmp:2, fhSoft:0.4, shell:0.8, noseAmp:0.22, chinAmp:0.15, elineAmp:0,
+            hairGap:0.18, backDepth:0.35 };
 const DEFAULTS = Object.assign({}, P);
 let lastPsd=null, lastPre=null;
 const T = Object.assign({}, P);
@@ -397,7 +404,8 @@ const sliders = { pAngleX:'angleX',pAngleY:'angleY',pAngleZ:'angleZ',pEyeL:'eyeO
   pBrowAngL:'browAngL',pBrowAngR:'browAngR',pBrowAngSym:'browAngSym',
   pBangL:'bangL',pBangC:'bangC',pBangR:'bangR',pArmY:'armY',pArmPos:'armPos',
   pBust:'bust',pBustY:'bustY',pIrisScale:'irisScale',pMouthEase:'mouthEase',pEyeEase:'eyeEase',
-  pFhAmp:'fhAmp',pFhSoft:'fhSoft',pShell:'shell',pNose:'noseAmp',pChin:'chinAmp',pEline:'elineAmp' };
+  pFhAmp:'fhAmp',pFhSoft:'fhSoft',pShell:'shell',pNose:'noseAmp',pChin:'chinAmp',pEline:'elineAmp',
+  pHairGap:'hairGap',pBackDepth:'backDepth' };
 for(const id in sliders){
   const el=document.getElementById(id), key=sliders[id], v=el.parentNode.querySelector('.val');
   const upd=()=>{ T[key]=parseFloat(el.value); v.textContent=el.value; }; el.addEventListener('input',upd); upd();
@@ -820,6 +828,10 @@ function deform(L, e){
   const isFH=(bn==='front hair');
   const useProf=profEnabled;
   const faceInvH=1/Math.max(1,A.face.y1-A.face.y0);
+  // hair layers ride their own scalp shell (HAIR) and skip all face-profile terms:
+  // front hair + headwear float above the forehead, back hair recedes behind the head
+  const hairMode=(bn==='front hair'||bn==='headwear')?'front':(bn==='back hair'?'back':null);
+  const ELL=hairMode?HAIR:HEAD;
   for(let k=0;k<n;k+=2){
     let x=b[k], y=b[k+1];
     const vi=k>>1;
@@ -867,11 +879,18 @@ function deform(L, e){
       // B) 2.5D shell: lift vertex onto head ellipsoid, rotate in 3D, reproject
       const wS = e.shell*hw;
       if(wS>0.001){
-        const u=(x-HEAD.cx)/HEAD.rx, v=(y-HEAD.cy)/HEAD.ry;
+        const u=(x-ELL.cx)/ELL.rx, v=(y-ELL.cy)/ELL.ry;
         const r2=u*u+v*v;
         const ellip=Math.sqrt(Math.max(0,1-Math.min(1,r2)));
         let zs;
-        if(useProf){
+        if(hairMode==='front'){
+          // scalp shell + explicit gap: bangs/hats float above the forehead
+          zs = ellip + e.hairGap;
+        } else if(hairMode==='back'){
+          // rim stays near z≈0 (silhouette rotates like the head rim); the hidden
+          // center sits deepest — the asymmetric swing reads as hair-mass thickness
+          zs = -e.backDepth*ellip - 0.05;
+        } else if(useProf){
           // 横顔カーブ: draggable side-profile LUT replaces the nose/chin/E-line gaussians
           const pv=(y-A.face.y0)*faceInvH;
           const pdx=(x-HEAD.cx)/(HEAD.nose.sx*1.9);
@@ -894,11 +913,11 @@ function deform(L, e){
         const yaw=e.angleX*0.45, pit=e.angleY*0.32;
         const cyw=Math.cos(yaw), syw=Math.sin(yaw);
         const cpt=Math.cos(pit), spt=Math.sin(pit);
-        let X=u*HEAD.rx, Y=v*HEAD.ry, Z=zs*HEAD.rz;
+        let X=u*ELL.rx, Y=v*ELL.ry, Z=zs*ELL.rz;
         const X2=X*cyw+Z*syw, Z2=-X*syw+Z*cyw;      // yaw around vertical axis
         const Y2=Y*cpt-Z2*spt, Z3=Y*spt+Z2*cpt;     // pitch around horizontal axis
-        const f=HEAD.rz*5.0, sc=f/(f-Z3*0.5);        // damped perspective
-        const sx=HEAD.cx+X2*sc, sy=HEAD.cy+Y2*sc;
+        const f=ELL.rz*5.0, sc=f/(f-Z3*0.5);        // damped perspective
+        const sx=ELL.cx+X2*sc, sy=ELL.cy+Y2*sc;
         x=px+(sx-px)*wS; y=py+(sy-py)*wS;
       } else { x=px; y=py; }
     }
