@@ -281,6 +281,22 @@ function applyRig(rig){
     // chin tip bump; together with the nose it defines the E-line ridge
     HEAD.chin={cx:A.face.cx, cy:A.face.y1-(A.face.y1-A.face.y0)*0.06,
                sx:(A.face.x1-A.face.x0)*0.18, sy:(A.face.y1-A.face.y0)*0.12};
+    // per-model profile-curve defaults: pin 鼻根 to eye level (nose root),
+    // 鼻先 to the nose anchor, 上唇 to the top of the mouth
+    const v_=yy=>clamp((yy-A.face.y0)/Math.max(1,A.face.y1-A.face.y0),0,1);
+    const rootY=(A.eyeL&&A.eyeR)?((A.eyeL.icy+A.eyeR.icy)/2):(ncy-(A.face.y1-A.face.y0)*0.20);
+    profAnchorDefaults=[
+      {v:0.06,          z:0.10},
+      {v:v_(rootY),     z:0.02},
+      {v:v_(ncy),       z:0.30},
+      {v:v_(A.mouth.y0),z:0.06},
+      {v:0.97,          z:0.14}];
+    for(let pi=1;pi<profAnchorDefaults.length;pi++)
+      profAnchorDefaults[pi].v=Math.max(profAnchorDefaults[pi].v, profAnchorDefaults[pi-1].v+0.03);
+    if(!profTouched){   // user hasn't customized the curve — adopt the model-fitted defaults
+      profPoints=profAnchorDefaults.map(p=>Object.assign({},p));
+      rebuildProfLUT(); drawProfCv();
+    }
   }
   // scalp shell: slightly larger + higher ellipsoid for the hair layers, so the
   // bangs float above the forehead and the back hair reads as a mass behind the head
@@ -420,6 +436,7 @@ const PROF_LABELS=['額','鼻根','鼻先','上唇','顎'];
 const PROF_DEFAULTS=[
   {v:0.06, z:0.10}, {v:0.42, z:0.02}, {v:0.62, z:0.30}, {v:0.78, z:0.06}, {v:0.97, z:0.14}];
 let profPoints=PROF_DEFAULTS.map(p=>Object.assign({},p));
+let profAnchorDefaults=null;   // per-model defaults derived from rig anchors (set in applyRig)
 let profEnabled=false;
 const PROF_LUT_N=64;
 let profLUT=new Float32Array(PROF_LUT_N);
@@ -447,6 +464,7 @@ function profLUTLookup(v){
   return profLUT[i0]+(profLUT[i1]-profLUT[i0])*t;
 }
 function persistProfile(){
+  profTouched=true;
   try{ localStorage.setItem('a25d_profile', JSON.stringify({points:profPoints, enabled:profEnabled})); }catch(err){}
 }
 // one-way sync curve→sliders: derive the legacy gaussian slider values from the
@@ -473,6 +491,7 @@ const profWasSaved=(function loadProfile(){
   }catch(err){}
   return false;
 })();
+let profTouched=profWasSaved;   // false until the user edits/saves — anchor defaults may overwrite
 rebuildProfLUT();
 if(profWasSaved) syncProfToSliders();   // pristine first visit keeps the P defaults
 
@@ -483,7 +502,7 @@ tgProfCurve.addEventListener('click',()=>{
   profEnabled=!profEnabled; tgProfCurve.classList.toggle('on',profEnabled); persistProfile();
 });
 document.getElementById('btnProfReset').addEventListener('click',()=>{
-  profPoints=PROF_DEFAULTS.map(p=>Object.assign({},p));
+  profPoints=(profAnchorDefaults||PROF_DEFAULTS).map(p=>Object.assign({},p));
   rebuildProfLUT(); drawProfCv(); syncProfToSliders(); persistProfile();
 });
 
@@ -557,6 +576,7 @@ window.addEventListener('mouseup',()=>{
   if(profDrag>=0){ profDrag=-1; profCv.style.cursor='grab'; persistProfile(); }
 });
 window.__setProfilePoints=function(pts){ profPoints=pts.map(p=>Object.assign({},p)); rebuildProfLUT(); drawProfCv(); syncProfToSliders(); }; // test hook
+window.__getProfilePoints=function(){ return profPoints.map(p=>({v:p.v,z:p.z})); }; // test hook
 
 [['tgIdle','idle'],['tgBlink','blink'],['tgRand','rand'],['tgTalk','talk'],['tgCam','cam'],['tgMouse','mouse'],['tgMic','mic'],['tgPhys','phys']].forEach(([id,key])=>{
   const el=document.getElementById(id);
