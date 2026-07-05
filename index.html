@@ -134,6 +134,7 @@ header h1{letter-spacing:.05em}
       <div class="row"><label>角度 Y</label><input type="range" id="pAngleY" min="-1" max="1" step="0.01" value="0"><span class="val"></span></div>
       <div class="row"><label>角度 Z</label><input type="range" id="pAngleZ" min="-1" max="1" step="0.01" value="0"><span class="val"></span></div>
       <div class="row"><label>3Dシェル</label><input type="range" id="pShell" min="0" max="1" step="0.01" value="0.8"><span class="val"></span></div>
+      <div class="row"><label>鼻の高さ</label><input type="range" id="pNose" min="0" max="0.6" step="0.01" value="0.22"><span class="val"></span></div>
     </div>
     <div class="sec"><h2>目</h2>
       <div class="row"><label>左目の開き</label><input type="range" id="pEyeL" min="0" max="1" step="0.01" value="1"><span class="val"></span></div>
@@ -242,6 +243,19 @@ function applyRig(rig){
   HEAD={cx:A.face.cx, cy:A.face.y0+(A.face.y1-A.face.y0)*0.45,
         rx:(A.face.x1-A.face.x0)*0.62, ry:(A.face.y1-A.face.y0)*0.72,
         rz:(A.face.x1-A.face.x0)*0.45};
+  // nose tip: gaussian bump on the shell, centred on the nose layer if present,
+  // otherwise estimated between the eyes and the mouth
+  {
+    const noseL=rig.layers.find(l=>Rigger.baseName(l.name)==='nose');
+    let ncx, ncy;
+    if(noseL){ ncx=noseL.x+noseL.w/2; ncy=noseL.y+noseL.h*0.65; }
+    else {
+      const ey=(A.eyeL&&A.eyeR)?((A.eyeL.icy+A.eyeR.icy)/2):A.face.cy;
+      ncx=A.face.cx; ncy=ey+(A.mouth.cy-ey)*0.55;
+    }
+    HEAD.nose={cx:ncx, cy:ncy,
+               sx:(A.face.x1-A.face.x0)*0.11, sy:(A.face.y1-A.face.y0)*0.14};
+  }
   for(const Lr of rig.layers){
     const L=Object.assign({},Lr);
     const cell=(L.phys?30:42)*Math.max(0.6,CW/768);
@@ -346,7 +360,7 @@ const P = { angleX:0, angleY:0, angleZ:0, eyeOpenL:1, eyeOpenR:1, eyeX:0, eyeY:0
             mouthOpen:0, mouthForm:0, mouthCY:0, body:0, physAmp:2, soft:2,
             browAngL:0, browAngR:0, browAngSym:0, bangL:0, bangC:0, bangR:0,
             armY:0, armPos:0, bust:2.5, bustY:1, irisScale:1, mouthEase:0.45, eyeEase:0.3,
-            fhAmp:2, fhSoft:0.4, shell:0.8 };
+            fhAmp:2, fhSoft:0.4, shell:0.8, noseAmp:0.22 };
 const DEFAULTS = Object.assign({}, P);
 let lastPsd=null, lastPre=null;
 const T = Object.assign({}, P);
@@ -359,7 +373,7 @@ const sliders = { pAngleX:'angleX',pAngleY:'angleY',pAngleZ:'angleZ',pEyeL:'eyeO
   pBrowAngL:'browAngL',pBrowAngR:'browAngR',pBrowAngSym:'browAngSym',
   pBangL:'bangL',pBangC:'bangC',pBangR:'bangR',pArmY:'armY',pArmPos:'armPos',
   pBust:'bust',pBustY:'bustY',pIrisScale:'irisScale',pMouthEase:'mouthEase',pEyeEase:'eyeEase',
-  pFhAmp:'fhAmp',pFhSoft:'fhSoft',pShell:'shell' };
+  pFhAmp:'fhAmp',pFhSoft:'fhSoft',pShell:'shell',pNose:'noseAmp' };
 for(const id in sliders){
   const el=document.getElementById(id), key=sliders[id], v=el.parentNode.querySelector('.val');
   const upd=()=>{ T[key]=parseFloat(el.value); v.textContent=el.value; }; el.addEventListener('input',upd); upd();
@@ -646,8 +660,11 @@ function deform(L, e){
       if(wS>0.001){
         const u=(x-HEAD.cx)/HEAD.rx, v=(y-HEAD.cy)/HEAD.ry;
         const r2=u*u+v*v;
-        // ellipsoid z, continuous at the rim; depth slots become radial offsets
-        const zs=Math.sqrt(Math.max(0,1-Math.min(1,r2))) + (dd-1)*0.55;
+        // ellipsoid z + nose-tip bump, continuous at the rim; depth slots become radial offsets
+        const ndx=(x-HEAD.nose.cx)/HEAD.nose.sx, ndy=(y-HEAD.nose.cy)/HEAD.nose.sy;
+        const zs=Math.sqrt(Math.max(0,1-Math.min(1,r2)))
+               + e.noseAmp*Math.exp(-(ndx*ndx+ndy*ndy))
+               + (dd-1)*0.55;
         const yaw=e.angleX*0.45, pit=e.angleY*0.32;
         const cyw=Math.cos(yaw), syw=Math.sin(yaw);
         const cpt=Math.cos(pit), spt=Math.sin(pit);
