@@ -151,9 +151,11 @@ header h1{letter-spacing:.05em}
       <div class="row"><label>前髪の浮き</label><input type="range" id="pHairGap" min="0" max="0.5" step="0.01" value="0.18"><span class="val"></span></div>
       <div class="row"><label>前髪のふくらみ</label><input type="range" id="pHairBulge" min="0" max="1.5" step="0.01" value="1"><span class="val"></span></div>
       <div class="row"><label>後髪の奥行き</label><input type="range" id="pBackDepth" min="0" max="0.8" step="0.01" value="0.35"><span class="val"></span></div>
-      <div class="row"><label>体シェル</label><input type="range" id="pBodyShell" min="0" max="1" step="0.01" value="0.7"><span class="val"></span></div>
-      <div class="row"><label>胸の立体感</label><input type="range" id="pChestVol" min="0" max="0.6" step="0.01" value="0.25"><span class="val"></span></div>
-      <div class="row"><label>胸の浮き輪</label><input type="range" id="pChestRing" min="0" max="1" step="0.01" value="0.5"><span class="val"></span></div>
+      <div class="row"><label>体シェル</label><input type="range" id="pBodyShell" min="0" max="2" step="0.01" value="0.7"><span class="val"></span></div>
+      <div class="row"><label>体の回り込み</label><input type="range" id="pBodyYaw" min="0" max="1.5" step="0.01" value="0.35"><span class="val"></span></div>
+      <div class="row"><label>胸の立体感</label><input type="range" id="pChestVol" min="0" max="1.5" step="0.01" value="0.25"><span class="val"></span></div>
+      <div class="row"><label>胸の浮き輪</label><input type="range" id="pChestRing" min="0" max="1.5" step="0.01" value="0.5"><span class="val"></span></div>
+      <div class="row"><label>胸のたわみ</label><input type="range" id="pChestSag" min="0" max="60" step="1" value="10"><span class="val"></span></div>
     </div>
     <div class="sec"><h2>横顔カーブ</h2>
       <div class="toggles">
@@ -414,7 +416,8 @@ const P = { angleX:0, angleY:0, angleZ:0, eyeOpenL:1, eyeOpenR:1, eyeX:0, eyeY:0
             browAngL:0, browAngR:0, browAngSym:0, bangL:0, bangC:0, bangR:0,
             armY:0, armPos:0, bust:2.5, bustY:1, irisScale:1, mouthEase:0.45, eyeEase:0.3,
             fhAmp:2, fhSoft:0.4, shell:0.8, noseAmp:0.22, chinAmp:0.15, elineAmp:0,
-            hairGap:0.18, hairBulge:1, backDepth:0.35, bodyShell:0.7, chestVol:0.25, chestRing:0.5 };
+            hairGap:0.18, hairBulge:1, backDepth:0.35, bodyShell:0.7, chestVol:0.25, chestRing:0.5,
+            bodyYaw:0.35, chestSag:10 };
 const DEFAULTS = Object.assign({}, P);
 let lastPsd=null, lastPre=null;
 const T = Object.assign({}, P);
@@ -429,7 +432,8 @@ const sliders = { pAngleX:'angleX',pAngleY:'angleY',pAngleZ:'angleZ',pEyeL:'eyeO
   pBust:'bust',pBustY:'bustY',pIrisScale:'irisScale',pMouthEase:'mouthEase',pEyeEase:'eyeEase',
   pFhAmp:'fhAmp',pFhSoft:'fhSoft',pShell:'shell',pNose:'noseAmp',pChin:'chinAmp',pEline:'elineAmp',
   pHairGap:'hairGap',pHairBulge:'hairBulge',pBackDepth:'backDepth',
-  pBodyShell:'bodyShell',pChestVol:'chestVol',pChestRing:'chestRing' };
+  pBodyShell:'bodyShell',pChestVol:'chestVol',pChestRing:'chestRing',
+  pBodyYaw:'bodyYaw',pChestSag:'chestSag' };
 for(const id in sliders){
   const el=document.getElementById(id), key=sliders[id], v=el.parentNode.querySelector('.val');
   const upd=()=>{ T[key]=parseFloat(el.value); v.textContent=el.value; }; el.addEventListener('input',upd); upd();
@@ -865,7 +869,7 @@ function deform(L, e){
   // *difference* between the yawed and zero-yaw projections is added, so at rest
   // (angleX=0, body=0) the render is pixel-identical to the non-shell pipeline.
   const wB=(bn==='topwear'||bn==='bottomwear')?e.shell*e.bodyShell:0;
-  const yawB=e.angleX*0.45*0.35+e.body*0.10;   // follows the head turn at ~35% + body-tilt hint
+  const yawB=e.angleX*0.45*e.bodyYaw+e.body*0.10;   // follows the head turn at 体の回り込み% + body-tilt hint
   const cyb=Math.cos(yawB), syb=Math.sin(yawB);
   const fB=BODY?BODY.rz*6:1;
   const bustCy=CHEST?CHEST.cy+e.bustY*70*FS:0;
@@ -978,9 +982,13 @@ function deform(L, e){
         // 浮き輪: the peak moves from the centre (dome) onto a ring, biased to the
         // lower half so the under-bust shelf carries the thickness; 0 = exact old dome
         const lower=0.5+0.5*clamp(gy,-1,1);
-        const r0=e.chestRing*0.75*lower, rw=1-0.30*e.chestRing*lower;
+        const r0=e.chestRing*0.75*lower, rw=Math.max(0.25,1-0.30*e.chestRing*lower);
         const q=(Math.sqrt(gx*gx+gy*gy)-r0)/rw;
-        zb += e.chestVol*Math.exp(-q*q);
+        const nb=Math.exp(-q*q);
+        zb += e.chestVol*nb;
+        // 胸のたわみ: the volume also pushes the cloth downward (frontally visible
+        // thickness — intentionally breaks the at-rest identity when > 0)
+        y += e.chestSag*FS*nb*smooth(gy+0.15);
       }
       const X=ub*BODY.rx, Z=zb*BODY.rz;
       const X2=X*cyb+Z*syb, Z2=-X*syb+Z*cyb;        // yaw around the neck axis
