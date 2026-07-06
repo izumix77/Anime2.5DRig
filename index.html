@@ -153,6 +153,7 @@ header h1{letter-spacing:.05em}
       <div class="row"><label>後髪の奥行き</label><input type="range" id="pBackDepth" min="0" max="0.8" step="0.01" value="0.35"><span class="val"></span></div>
       <div class="row"><label>体シェル</label><input type="range" id="pBodyShell" min="0" max="1" step="0.01" value="0.7"><span class="val"></span></div>
       <div class="row"><label>胸の立体感</label><input type="range" id="pChestVol" min="0" max="0.6" step="0.01" value="0.25"><span class="val"></span></div>
+      <div class="row"><label>胸の浮き輪</label><input type="range" id="pChestRing" min="0" max="1" step="0.01" value="0.5"><span class="val"></span></div>
     </div>
     <div class="sec"><h2>横顔カーブ</h2>
       <div class="toggles">
@@ -413,7 +414,7 @@ const P = { angleX:0, angleY:0, angleZ:0, eyeOpenL:1, eyeOpenR:1, eyeX:0, eyeY:0
             browAngL:0, browAngR:0, browAngSym:0, bangL:0, bangC:0, bangR:0,
             armY:0, armPos:0, bust:2.5, bustY:1, irisScale:1, mouthEase:0.45, eyeEase:0.3,
             fhAmp:2, fhSoft:0.4, shell:0.8, noseAmp:0.22, chinAmp:0.15, elineAmp:0,
-            hairGap:0.18, hairBulge:1, backDepth:0.35, bodyShell:0.7, chestVol:0.25 };
+            hairGap:0.18, hairBulge:1, backDepth:0.35, bodyShell:0.7, chestVol:0.25, chestRing:0.5 };
 const DEFAULTS = Object.assign({}, P);
 let lastPsd=null, lastPre=null;
 const T = Object.assign({}, P);
@@ -428,7 +429,7 @@ const sliders = { pAngleX:'angleX',pAngleY:'angleY',pAngleZ:'angleZ',pEyeL:'eyeO
   pBust:'bust',pBustY:'bustY',pIrisScale:'irisScale',pMouthEase:'mouthEase',pEyeEase:'eyeEase',
   pFhAmp:'fhAmp',pFhSoft:'fhSoft',pShell:'shell',pNose:'noseAmp',pChin:'chinAmp',pEline:'elineAmp',
   pHairGap:'hairGap',pHairBulge:'hairBulge',pBackDepth:'backDepth',
-  pBodyShell:'bodyShell',pChestVol:'chestVol' };
+  pBodyShell:'bodyShell',pChestVol:'chestVol',pChestRing:'chestRing' };
 for(const id in sliders){
   const el=document.getElementById(id), key=sliders[id], v=el.parentNode.querySelector('.val');
   const upd=()=>{ T[key]=parseFloat(el.value); v.textContent=el.value; }; el.addEventListener('input',upd); upd();
@@ -974,7 +975,12 @@ function deform(L, e){
       let zb=Math.sqrt(Math.max(0,1-Math.min(1,ub*ub)));
       if(isTop){   // chest bump so the bust leads the turn in 3/4 view
         const gx=(x-CHEST.cx)/CHEST.rx, gy=(y-bustCy)/CHEST.ry;
-        zb += e.chestVol*Math.exp(-(gx*gx+gy*gy));
+        // 浮き輪: the peak moves from the centre (dome) onto a ring, biased to the
+        // lower half so the under-bust shelf carries the thickness; 0 = exact old dome
+        const lower=0.5+0.5*clamp(gy,-1,1);
+        const r0=e.chestRing*0.75*lower, rw=1-0.30*e.chestRing*lower;
+        const q=(Math.sqrt(gx*gx+gy*gy)-r0)/rw;
+        zb += e.chestVol*Math.exp(-q*q);
       }
       const X=ub*BODY.rx, Z=zb*BODY.rz;
       const X2=X*cyb+Z*syb, Z2=-X*syb+Z*cyb;        // yaw around the neck axis
