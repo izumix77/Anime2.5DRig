@@ -1049,6 +1049,9 @@ function deform(L, e){
   // two breast masses centred on the nipple x-positions (offset from chest centre)
   const nipOff=CHEST?CHEST.rx*0.5:0, breastW=CHEST?CHEST.rx*0.40:1;
   const nipL=CHEST?CHEST.cx-nipOff:0, nipR=CHEST?CHEST.cx+nipOff:0;
+  // vertical influence range of the breast bulge: 胸上(top) → 下乳(bottom) of the chest curve
+  const chTop=useChestProf?chestPoints[1].v:0, chBot=useChestProf?chestPoints[3].v:1;
+  const chSoft=clamp((chBot-chTop)*0.22,0.02,0.08);
   for(let k=0;k<n;k+=2){
     let x=b[k], y=b[k+1];
     const vi=k>>1;
@@ -1154,7 +1157,9 @@ function deform(L, e){
       let zb=Math.sqrt(Math.max(0,1-Math.min(1,ub*ub)));
       if(useChestProf){   // 胸カーブ: two breast masses at the nipples protrude forward per the curve
         const vB=clamp((y-BODY.y0)*bodyInvH,0,1);
-        const cl=chestLUTLookup(vB);
+        // confine the bulge to the 胸上→下乳 band so those points set its vertical extent
+        const win=smooth((vB-chTop)/chSoft)*smooth((chBot-vB)/chSoft);
+        const cl=chestLUTLookup(vB)*win;
         // localized +z bumps at ±nipple (NOT a uniform cross-section swell): the ribcage
         // keeps the plain cylinder while the breasts alone bulge forward and lead the turn
         const bl=(x-nipL)/breastW, br=(x-nipR)/breastW;
