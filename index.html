@@ -171,7 +171,7 @@ header h1{letter-spacing:.05em}
         <button class="btn" id="btnChestReset">リセット</button>
       </div>
       <canvas id="chestCv" width="268" height="150" style="display:block;margin-top:8px;border:1px solid var(--line);border-radius:4px;background:#0a0a0c;cursor:grab"></canvas>
-      <div style="font-size:10px;color:var(--sub);margin-top:6px">胴の側面プロファイル（首元→胸先→腰）。右=横に張り出す / 左=引き締まる</div>
+      <div style="font-size:10px;color:var(--sub);margin-top:6px">乳房の側面プロファイル（首元→胸先→腰）。右=手前に膨らむ / 左=引っ込む。両乳首位置に立体を作ります</div>
     </div>
     <div class="sec"><h2>目</h2>
       <div class="row"><label>左目の開き</label><input type="range" id="pEyeL" min="0" max="1" step="0.01" value="1"><span class="val"></span></div>
@@ -1022,6 +1022,9 @@ function deform(L, e){
   const isTop=(bn==='topwear');
   const useChestProf=chestEnabled;
   const bodyInvH=BODY?1/Math.max(1,BODY.y1-BODY.y0):1;
+  // two breast masses centred on the nipple x-positions (offset from chest centre)
+  const nipOff=CHEST?CHEST.rx*0.5:0, breastW=CHEST?CHEST.rx*0.40:1;
+  const nipL=CHEST?CHEST.cx-nipOff:0, nipR=CHEST?CHEST.cx+nipOff:0;
   for(let k=0;k<n;k+=2){
     let x=b[k], y=b[k+1];
     const vi=k>>1;
@@ -1125,13 +1128,17 @@ function deform(L, e){
     if(wB>0.001){
       const ub=(x-BODY.cx)/BODY.rx;
       let zb=Math.sqrt(Math.max(0,1-Math.min(1,ub*ub)));
-      if(useChestProf){   // 胸カーブ: row-wise cylinder-radius modulation (横に張り出し)
+      if(useChestProf){   // 胸カーブ: two breast masses at the nipples protrude forward per the curve
         const vB=clamp((y-BODY.y0)*bodyInvH,0,1);
         const cl=chestLUTLookup(vB);
-        zb *= (1+cl);   // whole cross-section swells at bust rows so it leads laterally
+        // localized +z bumps at ±nipple (NOT a uniform cross-section swell): the ribcage
+        // keeps the plain cylinder while the breasts alone bulge forward and lead the turn
+        const bl=(x-nipL)/breastW, br=(x-nipR)/breastW;
+        const breast=Math.exp(-bl*bl)+Math.exp(-br*br);
+        zb += cl*breast;
         if(isTop){   // 胸のたわみ driven by the curve (frontally visible thickness)
           const gy=(y-bustCy)/CHEST.ry;
-          y += e.chestSag*FS*Math.max(0,cl)*smooth(gy+0.15);
+          y += e.chestSag*FS*Math.max(0,cl)*breast*smooth(gy+0.15);
         }
       } else if(isTop){   // legacy dome/torus chest bump so the bust leads the turn in 3/4 view
         const gx=(x-CHEST.cx)/CHEST.rx, gy=(y-bustCy)/CHEST.ry;
