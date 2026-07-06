@@ -118,6 +118,12 @@ header h1{letter-spacing:.05em}
         <div class="tg on" id="tgPhys">髪の物理</div>
       </div>
     </div>
+    <div class="sec"><h2>デバッグ</h2>
+      <div class="toggles">
+        <div class="tg" id="tgMesh">疑似3Dメッシュ</div>
+      </div>
+      <div style="font-size:10px;color:var(--sub);margin-top:6px">変形後のメッシュ（ワイヤーフレーム）を上に重ねて表示</div>
+    </div>
     <div class="sec"><h2>表情プリセット</h2>
       <div class="btns">
         <button class="btn" data-preset="neutral">通常</button>
@@ -255,6 +261,17 @@ gl.enableVertexAttribArray(locPos); gl.enableVertexAttribArray(locUV);
 gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
 
+// ---------- debug wireframe program (position-only, solid colour) ----------
+const progLine = gl.createProgram();
+gl.attachShader(progLine, sh(gl.VERTEX_SHADER,
+ 'attribute vec2 aPos; uniform vec2 uRes;'+
+ 'void main(){ vec2 c = aPos/uRes*2.0-1.0; gl_Position=vec4(c.x,-c.y,0.0,1.0); }'));
+gl.attachShader(progLine, sh(gl.FRAGMENT_SHADER,
+ 'precision mediump float; uniform vec4 uColor; void main(){ gl_FragColor=uColor; }'));
+gl.linkProgram(progLine);
+const locLPos=gl.getAttribLocation(progLine,'aPos');
+const locLRes=gl.getUniformLocation(progLine,'uRes'), locLColor=gl.getUniformLocation(progLine,'uColor');
+
 // ---------- model state (mutable, rebuilt per PSD) ----------
 let layers=[], A=null, CW=768, CH=768, FS=1, NP=null, BP=null, FC=null, CHEST=null, HEAD=null, HAIR=null, BODY=null;
 const bounce={x:0,v:0,dy:0};
@@ -270,7 +287,7 @@ function mkTex(imgData){
 }
 
 function applyRig(rig){
-  for(const L of layers){ gl.deleteTexture(L.tex); gl.deleteBuffer(L.vboPos); gl.deleteBuffer(L.vboUV); gl.deleteBuffer(L.ibo); }
+  for(const L of layers){ gl.deleteTexture(L.tex); gl.deleteBuffer(L.vboPos); gl.deleteBuffer(L.vboUV); gl.deleteBuffer(L.ibo); if(L.lbo) gl.deleteBuffer(L.lbo); }
   layers=[];
   CW=rig.canvas.w; CH=rig.canvas.h; A=rig.anchors; FS=A.faceScale;
   NP=A.neckPivot; BP=A.bodyPivot; FC={x:A.face.cx,y:A.face.cy};
@@ -352,7 +369,11 @@ function applyRig(rig){
     for(let j=0;j<ny;j++) for(let i=0;i<nx;i++){
       const a=j*(nx+1)+i, b=a+1, c=a+nx+1, d=c+1; idx.push(a,b,c,b,d,c);
     }
-    L.base=base; L.cur=new Float32Array(base); L.nIdx=idx.length;
+    // grid-edge indices for the debug wireframe overlay (horizontal + vertical lines)
+    const lidx=[];
+    for(let j=0;j<=ny;j++) for(let i=0;i<nx;i++){ const a=j*(nx+1)+i; lidx.push(a,a+1); }
+    for(let i=0;i<=nx;i++) for(let j=0;j<ny;j++){ const a=j*(nx+1)+i; lidx.push(a,a+nx+1); }
+    L.base=base; L.cur=new Float32Array(base); L.nIdx=idx.length; L.nLine=lidx.length;
     L.bn=Rigger.baseName(L.name.replace(/_(l|r)$/,''));
     if(L.strands&&L.strands.length){
       const S=L.strands, nS=S.length;
@@ -379,9 +400,10 @@ function applyRig(rig){
           L.bw[v*3]=1-s1; L.bw[v*3+1]=s1*(1-s2); L.bw[v*3+2]=s2; }
       }
     }
-    L.vboPos=gl.createBuffer(); L.vboUV=gl.createBuffer(); L.ibo=gl.createBuffer();
+    L.vboPos=gl.createBuffer(); L.vboUV=gl.createBuffer(); L.ibo=gl.createBuffer(); L.lbo=gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER,L.vboUV); gl.bufferData(gl.ARRAY_BUFFER,uv,gl.STATIC_DRAW);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,L.ibo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint16Array(idx),gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,L.lbo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint16Array(lidx),gl.STATIC_DRAW);
     const idata=(typeof ImageData!=='undefined')?new ImageData(new Uint8ClampedArray(L.img.data),L.img.width,L.img.height):L.img;
     L.tex=mkTex(idata); delete L.img;
     layers.push(L);
@@ -449,7 +471,7 @@ const DEFAULTS = Object.assign({}, P);
 let lastPsd=null, lastPre=null;
 const T = Object.assign({}, P);
 const cur = Object.assign({}, P);
-const auto = { idle:true, blink:true, rand:true, talk:true, mouse:false, mic:false, phys:true, cam:false };
+const auto = { idle:true, blink:true, rand:true, talk:true, mouse:false, mic:false, phys:true, cam:false, mesh:false };
 
 const sliders = { pAngleX:'angleX',pAngleY:'angleY',pAngleZ:'angleZ',pEyeL:'eyeOpenL',pEyeR:'eyeOpenR',
   pEyeX:'eyeX',pEyeY:'eyeY',pBrow:'brow',pMouthOpen:'mouthOpen',pMouthForm:'mouthForm',
@@ -737,7 +759,7 @@ window.addEventListener('mouseup',()=>{
 window.__setChestPoints=function(pts){ chestPoints=pts.map(p=>Object.assign({},p)); rebuildChestLUT(); drawChestCv(); syncChestToSliders(); }; // test hook
 window.__getChestPoints=function(){ return chestPoints.map(p=>({v:p.v,z:p.z})); }; // test hook
 
-[['tgIdle','idle'],['tgBlink','blink'],['tgRand','rand'],['tgTalk','talk'],['tgCam','cam'],['tgMouse','mouse'],['tgMic','mic'],['tgPhys','phys']].forEach(([id,key])=>{
+[['tgIdle','idle'],['tgBlink','blink'],['tgRand','rand'],['tgTalk','talk'],['tgCam','cam'],['tgMouse','mouse'],['tgMic','mic'],['tgPhys','phys'],['tgMesh','mesh']].forEach(([id,key])=>{
   const el=document.getElementById(id);
   el.addEventListener('click',()=>{ auto[key]=!auto[key]; el.classList.toggle('on',auto[key]);
     if(key==='mic'&&auto.mic) initMic();
@@ -1328,6 +1350,25 @@ function tick(now){
     } else {
       gl.drawElements(gl.TRIANGLES,L.nIdx,gl.UNSIGNED_SHORT,0);
     }
+  }
+  // --- debug: deformed mesh wireframe overlay (same GL coords as the textured pass) ---
+  if(auto.mesh){
+    gl.useProgram(progLine);
+    gl.disable(gl.BLEND);   // solid lines, visible over any background
+    gl.uniform2f(locLRes,CW,CH);
+    gl.uniform4f(locLColor,0.15,1.0,0.35,1.0);
+    gl.enableVertexAttribArray(locLPos);
+    for(const L of layers){
+      const fa=fadeAlpha(L,e);
+      if(fa<0.004 && !(L.fade==='eyeOpen'&&L.name.indexOf('eyewhite')===0)) continue;
+      gl.bindBuffer(gl.ARRAY_BUFFER,L.vboPos);   // already holds this frame's L.cur
+      gl.vertexAttribPointer(locLPos,2,gl.FLOAT,false,0,0);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,L.lbo);
+      gl.drawElements(gl.LINES,L.nLine,gl.UNSIGNED_SHORT,0);
+    }
+    gl.enable(gl.BLEND);
+    gl.useProgram(prog); gl.uniform2f(locRes,CW,CH);
+    gl.enableVertexAttribArray(locPos); gl.enableVertexAttribArray(locUV);
   }
   fpsN++; if(now-fpsT>500){ document.getElementById('fps').textContent=Math.round(fpsN*1000/(now-fpsT))+' fps';
     fpsN=0; fpsT=now; }
