@@ -151,10 +151,10 @@ header h1{letter-spacing:.05em}
       <div class="row"><label>前髪の浮き</label><input type="range" id="pHairGap" min="0" max="0.5" step="0.01" value="0.18"><span class="val"></span></div>
       <div class="row"><label>前髪のふくらみ</label><input type="range" id="pHairBulge" min="0" max="1.5" step="0.01" value="1"><span class="val"></span></div>
       <div class="row"><label>後髪の奥行き</label><input type="range" id="pBackDepth" min="0" max="0.8" step="0.01" value="0.35"><span class="val"></span></div>
-      <div class="row"><label>体シェル</label><input type="range" id="pBodyShell" min="0" max="2" step="0.01" value="0.7"><span class="val"></span></div>
-      <div class="row"><label>体の回り込み</label><input type="range" id="pBodyYaw" min="0" max="1.5" step="0.01" value="0.35"><span class="val"></span></div>
-      <div class="row"><label>胸の立体感</label><input type="range" id="pChestVol" min="0" max="1.5" step="0.01" value="0.25"><span class="val"></span></div>
-      <div class="row"><label>胸の浮き輪</label><input type="range" id="pChestRing" min="0" max="1.5" step="0.01" value="0.5"><span class="val"></span></div>
+      <div class="row"><label>体シェル</label><input type="range" id="pBodyShell" min="0" max="1" step="0.01" value="0.7"><span class="val"></span></div>
+      <div class="row"><label>体の回り込み</label><input type="range" id="pBodyYaw" min="0" max="1" step="0.01" value="0.35"><span class="val"></span></div>
+      <div class="row"><label>胸の立体感</label><input type="range" id="pChestVol" min="0" max="0.6" step="0.01" value="0.25"><span class="val"></span></div>
+      <div class="row"><label>胸の浮き輪</label><input type="range" id="pChestRing" min="0" max="1" step="0.01" value="0.5"><span class="val"></span></div>
       <div class="row"><label>胸のたわみ</label><input type="range" id="pChestSag" min="0" max="60" step="1" value="10"><span class="val"></span></div>
     </div>
     <div class="sec"><h2>横顔カーブ</h2>
@@ -164,6 +164,14 @@ header h1{letter-spacing:.05em}
       </div>
       <canvas id="profCv" width="268" height="150" style="display:block;margin-top:8px;border:1px solid var(--line);border-radius:4px;background:#0a0a0c;cursor:grab"></canvas>
       <div style="font-size:10px;color:var(--sub);margin-top:6px">点をドラッグして横顔の輪郭を調整（左=奥へ引っ込む / 右=前へ突き出す）</div>
+    </div>
+    <div class="sec"><h2>胸カーブ</h2>
+      <div class="toggles">
+        <div class="tg" id="tgChestCurve">カーブ使用</div>
+        <button class="btn" id="btnChestReset">リセット</button>
+      </div>
+      <canvas id="chestCv" width="268" height="150" style="display:block;margin-top:8px;border:1px solid var(--line);border-radius:4px;background:#0a0a0c;cursor:grab"></canvas>
+      <div style="font-size:10px;color:var(--sub);margin-top:6px">胴の側面プロファイル（首元→胸先→腰）。右=横に張り出す / 左=引き締まる</div>
     </div>
     <div class="sec"><h2>目</h2>
       <div class="row"><label>左目の開き</label><input type="range" id="pEyeL" min="0" max="1" step="0.01" value="1"><span class="val"></span></div>
@@ -269,7 +277,8 @@ function applyRig(rig){
          rx:(A.face.x1-A.face.x0)*0.60, ry:(A.face.y1-A.face.y0)*0.45};
   // 3D body shell: vertical elliptic cylinder around the neck axis (no y dependence —
   // the waist is just the lower part of the cylinder for now)
-  BODY={cx:NP.cx, rx:(A.face.x1-A.face.x0)*0.95, rz:(A.face.x1-A.face.x0)*0.55};
+  BODY={cx:NP.cx, rx:(A.face.x1-A.face.x0)*0.95, rz:(A.face.x1-A.face.x0)*0.55,
+        y0:A.neckBottom, y1:Math.min(CH, A.neckBottom+(A.face.y1-A.face.y0)*2.5)};
   // 2.5D shell: head approximated as an ellipsoid fit to the face bbox.
   // rz controls how far the "nose plane" sits in front of the neck axis.
   HEAD={cx:A.face.cx, cy:A.face.y0+(A.face.y1-A.face.y0)*0.45,
@@ -305,6 +314,23 @@ function applyRig(rig){
     if(!profTouched){   // user hasn't customized the curve — adopt the model-fitted defaults
       profPoints=profAnchorDefaults.map(p=>Object.assign({},p));
       rebuildProfLUT(); drawProfCv();
+    }
+  }
+  // per-model chest-curve defaults: 胸先 at the bust centre, 下乳 one radius below
+  {
+    const vB_=yy=>clamp((yy-BODY.y0)/Math.max(1,BODY.y1-BODY.y0),0,1);
+    const bustV=vB_(CHEST.cy), underV=vB_(CHEST.cy+CHEST.ry);
+    chestAnchorDefaults=[
+      {v:0.02,                   z:0.0},
+      {v:0.02+(bustV-0.02)*0.5,  z:0.10},
+      {v:bustV,                  z:0.28},
+      {v:underV,                 z:0.06},
+      {v:0.95,                   z:0.02}];
+    for(let pi=1;pi<chestAnchorDefaults.length;pi++)
+      chestAnchorDefaults[pi].v=Math.max(chestAnchorDefaults[pi].v, chestAnchorDefaults[pi-1].v+0.03);
+    if(!chestTouched){
+      chestPoints=chestAnchorDefaults.map(p=>Object.assign({},p));
+      rebuildChestLUT(); drawChestCv();
     }
   }
   // scalp shell: slightly larger + higher ellipsoid for the hair layers, so the
@@ -590,6 +616,126 @@ window.addEventListener('mouseup',()=>{
 window.__setProfilePoints=function(pts){ profPoints=pts.map(p=>Object.assign({},p)); rebuildProfLUT(); drawProfCv(); syncProfToSliders(); }; // test hook
 window.__getProfilePoints=function(){ return profPoints.map(p=>({v:p.v,z:p.z})); }; // test hook
 
+// ---------- 胸カーブ (chest/torso side-profile curve editor) ----------
+// Same left-facing side view as 横顔カーブ, spanning the torso (v=0 neckBottom .. v=1 below the bust).
+// In deform() the curve multiplicatively modulates the body cylinder's cross-section radius, so
+// bust rows swell and lead laterally under rotation (横に張り出し). Reuses the widget mapping + catmullRom.
+const CHEST_LABELS=['首元','胸上','胸先','下乳','腰'];
+const CHEST_DEFAULTS=[
+  {v:0.02, z:0.0}, {v:0.30, z:0.10}, {v:0.55, z:0.28}, {v:0.72, z:0.06}, {v:0.95, z:0.02}];
+let chestPoints=CHEST_DEFAULTS.map(p=>Object.assign({},p));
+let chestAnchorDefaults=null;
+let chestEnabled=false;
+let chestLUT=new Float32Array(PROF_LUT_N);
+function chestEval(v){
+  const pts=chestPoints;
+  if(v<=pts[0].v) return pts[0].z;
+  if(v>=pts[pts.length-1].v) return pts[pts.length-1].z;
+  let i=0; while(i<pts.length-2 && v>pts[i+1].v) i++;
+  const p1=pts[i], p2=pts[i+1];
+  const p0=pts[i-1]||p1, p3=pts[i+2]||p2;
+  const span=(p2.v-p1.v)||1e-6, t=(v-p1.v)/span;
+  return catmullRom(p0.z,p1.z,p2.z,p3.z,t);
+}
+function rebuildChestLUT(){
+  for(let i=0;i<PROF_LUT_N;i++) chestLUT[i]=chestEval(i/(PROF_LUT_N-1));
+}
+function chestLUTLookup(v){
+  v=v<0?0:(v>1?1:v);
+  const f=v*(PROF_LUT_N-1), i0=Math.floor(f), i1=Math.min(PROF_LUT_N-1,i0+1), t=f-i0;
+  return chestLUT[i0]+(chestLUT[i1]-chestLUT[i0])*t;
+}
+function persistChestProfile(){
+  chestTouched=true;
+  try{ localStorage.setItem('a25d_chestprofile', JSON.stringify({points:chestPoints, enabled:chestEnabled})); }catch(err){}
+}
+function syncChestToSliders(){ setSlider('chestVol', clamp(chestPoints[2].z, 0, 0.6)); }
+const chestWasSaved=(function loadChestProfile(){
+  try{
+    const saved=JSON.parse(localStorage.getItem('a25d_chestprofile')||'null');
+    if(saved&&Array.isArray(saved.points)&&saved.points.length===CHEST_DEFAULTS.length){
+      chestPoints=saved.points.map(p=>({v:+p.v,z:+p.z}));
+      chestEnabled=!!saved.enabled;
+      return true;
+    }
+  }catch(err){}
+  return false;
+})();
+let chestTouched=chestWasSaved;
+rebuildChestLUT();
+if(chestWasSaved) syncChestToSliders();
+
+const chestCv=document.getElementById('chestCv'), chestCx=chestCv.getContext('2d');
+const tgChestCurve=document.getElementById('tgChestCurve');
+tgChestCurve.classList.toggle('on',chestEnabled);
+tgChestCurve.addEventListener('click',()=>{
+  chestEnabled=!chestEnabled; tgChestCurve.classList.toggle('on',chestEnabled); persistChestProfile();
+});
+document.getElementById('btnChestReset').addEventListener('click',()=>{
+  chestPoints=(chestAnchorDefaults||CHEST_DEFAULTS).map(p=>Object.assign({},p));
+  rebuildChestLUT(); drawChestCv(); syncChestToSliders(); persistChestProfile();
+});
+function drawChestCv(){
+  const w=chestCv.width, h=chestCv.height;
+  chestCx.clearRect(0,0,w,h);
+  chestCx.fillStyle='#0a0a0c'; chestCx.fillRect(0,0,w,h);
+  const x0=profZtoX(0);
+  chestCx.strokeStyle='rgba(255,255,255,.16)'; chestCx.lineWidth=1;
+  chestCx.beginPath(); chestCx.moveTo(x0,PROF_PAD); chestCx.lineTo(x0,h-PROF_PAD); chestCx.stroke();
+  chestCx.strokeStyle='#d43b55'; chestCx.lineWidth=2; chestCx.beginPath();
+  for(let i=0;i<PROF_LUT_N;i++){
+    const v=i/(PROF_LUT_N-1), z=chestLUT[i];
+    const x=profZtoX(z), y=profVtoY(v);
+    if(i===0) chestCx.moveTo(x,y); else chestCx.lineTo(x,y);
+  }
+  chestCx.stroke();
+  chestCx.font='9px sans-serif'; chestCx.textBaseline='middle';
+  chestPoints.forEach((p,i)=>{
+    const x=profZtoX(p.z), y=profVtoY(p.v);
+    chestCx.beginPath(); chestCx.arc(x,y,4,0,Math.PI*2);
+    chestCx.fillStyle='#d43b55'; chestCx.fill();
+    chestCx.fillStyle='#8d93ad';
+    const label=CHEST_LABELS[i];
+    if(x>w-30) chestCx.fillText(label,x-8,y-8); else chestCx.fillText(label,x+8,y-8);
+  });
+}
+drawChestCv();
+let chestDrag=-1;
+function chestPickPoint(mx,my){
+  let best=-1, bd=14*14;
+  chestPoints.forEach((p,i)=>{
+    const dx=mx-profZtoX(p.z), dy=my-profVtoY(p.v), d2=dx*dx+dy*dy;
+    if(d2<bd){ bd=d2; best=i; }
+  });
+  return best;
+}
+function chestCvPos(ev){
+  const r=chestCv.getBoundingClientRect();
+  return {x:(ev.clientX-r.left)*(chestCv.width/r.width), y:(ev.clientY-r.top)*(chestCv.height/r.height)};
+}
+chestCv.addEventListener('mousedown',ev=>{
+  const pos=chestCvPos(ev);
+  chestDrag=chestPickPoint(pos.x,pos.y);
+  if(chestDrag>=0) chestCv.style.cursor='grabbing';
+});
+window.addEventListener('mousemove',ev=>{
+  if(chestDrag<0) return;
+  const pos=chestCvPos(ev);
+  let z=profXtoZ(pos.x), v=profYtoV(pos.y);
+  z=clamp(z,-0.4,0.8);
+  const pts=chestPoints, i=chestDrag;
+  const lo=i>0?pts[i-1].v:0, hi=i<pts.length-1?pts[i+1].v:1;
+  const eps=0.01;
+  v=clamp(v, i===0?0:lo+eps, i===pts.length-1?1:hi-eps);
+  pts[i].z=z; pts[i].v=v;
+  rebuildChestLUT(); drawChestCv(); syncChestToSliders();
+});
+window.addEventListener('mouseup',()=>{
+  if(chestDrag>=0){ chestDrag=-1; chestCv.style.cursor='grab'; persistChestProfile(); }
+});
+window.__setChestPoints=function(pts){ chestPoints=pts.map(p=>Object.assign({},p)); rebuildChestLUT(); drawChestCv(); syncChestToSliders(); }; // test hook
+window.__getChestPoints=function(){ return chestPoints.map(p=>({v:p.v,z:p.z})); }; // test hook
+
 [['tgIdle','idle'],['tgBlink','blink'],['tgRand','rand'],['tgTalk','talk'],['tgCam','cam'],['tgMouse','mouse'],['tgMic','mic'],['tgPhys','phys']].forEach(([id,key])=>{
   const el=document.getElementById(id);
   el.addEventListener('click',()=>{ auto[key]=!auto[key]; el.classList.toggle('on',auto[key]);
@@ -874,6 +1020,8 @@ function deform(L, e){
   const fB=BODY?BODY.rz*6:1;
   const bustCy=CHEST?CHEST.cy+e.bustY*70*FS:0;
   const isTop=(bn==='topwear');
+  const useChestProf=chestEnabled;
+  const bodyInvH=BODY?1/Math.max(1,BODY.y1-BODY.y0):1;
   for(let k=0;k<n;k+=2){
     let x=b[k], y=b[k+1];
     const vi=k>>1;
@@ -977,7 +1125,15 @@ function deform(L, e){
     if(wB>0.001){
       const ub=(x-BODY.cx)/BODY.rx;
       let zb=Math.sqrt(Math.max(0,1-Math.min(1,ub*ub)));
-      if(isTop){   // chest bump so the bust leads the turn in 3/4 view
+      if(useChestProf){   // 胸カーブ: row-wise cylinder-radius modulation (横に張り出し)
+        const vB=clamp((y-BODY.y0)*bodyInvH,0,1);
+        const cl=chestLUTLookup(vB);
+        zb *= (1+cl);   // whole cross-section swells at bust rows so it leads laterally
+        if(isTop){   // 胸のたわみ driven by the curve (frontally visible thickness)
+          const gy=(y-bustCy)/CHEST.ry;
+          y += e.chestSag*FS*Math.max(0,cl)*smooth(gy+0.15);
+        }
+      } else if(isTop){   // legacy dome/torus chest bump so the bust leads the turn in 3/4 view
         const gx=(x-CHEST.cx)/CHEST.rx, gy=(y-bustCy)/CHEST.ry;
         // 浮き輪: the peak moves from the centre (dome) onto a ring, biased to the
         // lower half so the under-bust shelf carries the thickness; 0 = exact old dome
