@@ -149,7 +149,10 @@ header h1{letter-spacing:.05em}
       <div class="row"><label>顎の高さ</label><input type="range" id="pChin" min="0" max="0.6" step="0.01" value="0.15"><span class="val"></span></div>
       <div class="row"><label>Eライン</label><input type="range" id="pEline" min="-0.3" max="0.3" step="0.01" value="0"><span class="val"></span></div>
       <div class="row"><label>前髪の浮き</label><input type="range" id="pHairGap" min="0" max="0.5" step="0.01" value="0.18"><span class="val"></span></div>
+      <div class="row"><label>前髪のふくらみ</label><input type="range" id="pHairBulge" min="0" max="1.5" step="0.01" value="1"><span class="val"></span></div>
       <div class="row"><label>後髪の奥行き</label><input type="range" id="pBackDepth" min="0" max="0.8" step="0.01" value="0.35"><span class="val"></span></div>
+      <div class="row"><label>体シェル</label><input type="range" id="pBodyShell" min="0" max="1" step="0.01" value="0.7"><span class="val"></span></div>
+      <div class="row"><label>胸の立体感</label><input type="range" id="pChestVol" min="0" max="0.6" step="0.01" value="0.25"><span class="val"></span></div>
     </div>
     <div class="sec"><h2>横顔カーブ</h2>
       <div class="toggles">
@@ -241,7 +244,7 @@ gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
 
 // ---------- model state (mutable, rebuilt per PSD) ----------
-let layers=[], A=null, CW=768, CH=768, FS=1, NP=null, BP=null, FC=null, CHEST=null, HEAD=null, HAIR=null;
+let layers=[], A=null, CW=768, CH=768, FS=1, NP=null, BP=null, FC=null, CHEST=null, HEAD=null, HAIR=null, BODY=null;
 const bounce={x:0,v:0,dy:0};
 
 function mkTex(imgData){
@@ -261,6 +264,9 @@ function applyRig(rig){
   NP=A.neckPivot; BP=A.bodyPivot; FC={x:A.face.cx,y:A.face.cy};
   CHEST={cx:NP.cx, cy:A.neckBottom+(A.face.y1-A.face.y0)*0.60,
          rx:(A.face.x1-A.face.x0)*0.60, ry:(A.face.y1-A.face.y0)*0.45};
+  // 3D body shell: vertical elliptic cylinder around the neck axis (no y dependence —
+  // the waist is just the lower part of the cylinder for now)
+  BODY={cx:NP.cx, rx:(A.face.x1-A.face.x0)*0.95, rz:(A.face.x1-A.face.x0)*0.55};
   // 2.5D shell: head approximated as an ellipsoid fit to the face bbox.
   // rz controls how far the "nose plane" sits in front of the neck axis.
   HEAD={cx:A.face.cx, cy:A.face.y0+(A.face.y1-A.face.y0)*0.45,
@@ -407,7 +413,7 @@ const P = { angleX:0, angleY:0, angleZ:0, eyeOpenL:1, eyeOpenR:1, eyeX:0, eyeY:0
             browAngL:0, browAngR:0, browAngSym:0, bangL:0, bangC:0, bangR:0,
             armY:0, armPos:0, bust:2.5, bustY:1, irisScale:1, mouthEase:0.45, eyeEase:0.3,
             fhAmp:2, fhSoft:0.4, shell:0.8, noseAmp:0.22, chinAmp:0.15, elineAmp:0,
-            hairGap:0.18, backDepth:0.35 };
+            hairGap:0.18, hairBulge:1, backDepth:0.35, bodyShell:0.7, chestVol:0.25 };
 const DEFAULTS = Object.assign({}, P);
 let lastPsd=null, lastPre=null;
 const T = Object.assign({}, P);
@@ -421,7 +427,8 @@ const sliders = { pAngleX:'angleX',pAngleY:'angleY',pAngleZ:'angleZ',pEyeL:'eyeO
   pBangL:'bangL',pBangC:'bangC',pBangR:'bangR',pArmY:'armY',pArmPos:'armPos',
   pBust:'bust',pBustY:'bustY',pIrisScale:'irisScale',pMouthEase:'mouthEase',pEyeEase:'eyeEase',
   pFhAmp:'fhAmp',pFhSoft:'fhSoft',pShell:'shell',pNose:'noseAmp',pChin:'chinAmp',pEline:'elineAmp',
-  pHairGap:'hairGap',pBackDepth:'backDepth' };
+  pHairGap:'hairGap',pHairBulge:'hairBulge',pBackDepth:'backDepth',
+  pBodyShell:'bodyShell',pChestVol:'chestVol' };
 for(const id in sliders){
   const el=document.getElementById(id), key=sliders[id], v=el.parentNode.querySelector('.val');
   const upd=()=>{ T[key]=parseFloat(el.value); v.textContent=el.value; }; el.addEventListener('input',upd); upd();
@@ -852,6 +859,16 @@ function deform(L, e){
   // front hair + headwear float above the forehead, back hair recedes behind the head
   const hairMode=(bn==='front hair'||bn==='headwear')?'front':(bn==='back hair'?'back':null);
   const ELL=hairMode?HAIR:HEAD;
+  // body 3D shell: topwear/bottomwear ride a vertical elliptic cylinder (not neck —
+  // it bridges to the head; not handwear — arms on a cylinder look wrong). Only the
+  // *difference* between the yawed and zero-yaw projections is added, so at rest
+  // (angleX=0, body=0) the render is pixel-identical to the non-shell pipeline.
+  const wB=(bn==='topwear'||bn==='bottomwear')?e.shell*e.bodyShell:0;
+  const yawB=e.angleX*0.45*0.35+e.body*0.10;   // follows the head turn at ~35% + body-tilt hint
+  const cyb=Math.cos(yawB), syb=Math.sin(yawB);
+  const fB=BODY?BODY.rz*6:1;
+  const bustCy=CHEST?CHEST.cy+e.bustY*70*FS:0;
+  const isTop=(bn==='topwear');
   for(let k=0;k<n;k+=2){
     let x=b[k], y=b[k+1];
     const vi=k>>1;
@@ -904,8 +921,9 @@ function deform(L, e){
         const ellip=Math.sqrt(Math.max(0,1-Math.min(1,r2)));
         let zs;
         if(hairMode==='front'){
-          // scalp shell + explicit gap: bangs/hats float above the forehead
-          zs = ellip + e.hairGap;
+          // scalp shell + explicit gap: bangs/hats float above the forehead;
+          // ふくらみ scales the dome (0 = flat card at the gap height)
+          zs = e.hairBulge*ellip + e.hairGap;
         } else if(hairMode==='back'){
           // rim stays near z≈0 (silhouette rotates like the head rim); the hidden
           // center sits deepest — the asymmetric swing reads as hair-mass thickness
@@ -947,8 +965,21 @@ function deform(L, e){
     if(bn==='topwear') x = NP.cx + (x-NP.cx)*(1+e.breath*0.003);
     // --- bust jiggle ---
     if(bn==='topwear'){
-      const gx=(x-CHEST.cx)/CHEST.rx, gy=(y-(CHEST.cy+e.bustY*70*FS))/CHEST.ry;
+      const gx=(x-CHEST.cx)/CHEST.rx, gy=(y-bustCy)/CHEST.ry;
       y += bounce.dy*e.bust*Math.exp(-gx*gx-gy*gy);
+    }
+    // --- body 3D shell (yaw-difference only; see hoist above) ---
+    if(wB>0.001){
+      const ub=(x-BODY.cx)/BODY.rx;
+      let zb=Math.sqrt(Math.max(0,1-Math.min(1,ub*ub)));
+      if(isTop){   // chest bump so the bust leads the turn in 3/4 view
+        const gx=(x-CHEST.cx)/CHEST.rx, gy=(y-bustCy)/CHEST.ry;
+        zb += e.chestVol*Math.exp(-(gx*gx+gy*gy));
+      }
+      const X=ub*BODY.rx, Z=zb*BODY.rz;
+      const X2=X*cyb+Z*syb, Z2=-X*syb+Z*cyb;        // yaw around the neck axis
+      const scR=fB/(fB-Z2*0.5), sc0=fB/(fB-Z*0.5);  // damped perspective (rotated vs zero-yaw)
+      x += (X2*scR-X*sc0)*wB;
     }
     // --- arms ---
     if(bn==='handwear'){
