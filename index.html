@@ -156,6 +156,7 @@ header h1{letter-spacing:.05em}
       <div class="row"><label>胸の立体感</label><input type="range" id="pChestVol" min="0" max="0.6" step="0.01" value="0.25"><span class="val"></span></div>
       <div class="row"><label>胸の浮き輪</label><input type="range" id="pChestRing" min="0" max="1" step="0.01" value="0.5"><span class="val"></span></div>
       <div class="row"><label>胸のたわみ</label><input type="range" id="pChestSag" min="0" max="60" step="1" value="10"><span class="val"></span></div>
+      <div class="row"><label>胸の回り込み</label><input type="range" id="pChestWrap" min="0" max="1.5" step="0.01" value="0.6"><span class="val"></span></div>
     </div>
     <div class="sec"><h2>横顔カーブ</h2>
       <div class="toggles">
@@ -443,7 +444,7 @@ const P = { angleX:0, angleY:0, angleZ:0, eyeOpenL:1, eyeOpenR:1, eyeX:0, eyeY:0
             armY:0, armPos:0, bust:2.5, bustY:1, irisScale:1, mouthEase:0.45, eyeEase:0.3,
             fhAmp:2, fhSoft:0.4, shell:0.8, noseAmp:0.22, chinAmp:0.15, elineAmp:0,
             hairGap:0.18, hairBulge:1, backDepth:0.35, bodyShell:0.7, chestVol:0.25, chestRing:0.5,
-            bodyYaw:0.35, chestSag:10 };
+            bodyYaw:0.35, chestSag:10, chestWrap:0.6 };
 const DEFAULTS = Object.assign({}, P);
 let lastPsd=null, lastPre=null;
 const T = Object.assign({}, P);
@@ -459,7 +460,7 @@ const sliders = { pAngleX:'angleX',pAngleY:'angleY',pAngleZ:'angleZ',pEyeL:'eyeO
   pFhAmp:'fhAmp',pFhSoft:'fhSoft',pShell:'shell',pNose:'noseAmp',pChin:'chinAmp',pEline:'elineAmp',
   pHairGap:'hairGap',pHairBulge:'hairBulge',pBackDepth:'backDepth',
   pBodyShell:'bodyShell',pChestVol:'chestVol',pChestRing:'chestRing',
-  pBodyYaw:'bodyYaw',pChestSag:'chestSag' };
+  pBodyYaw:'bodyYaw',pChestSag:'chestSag',pChestWrap:'chestWrap' };
 for(const id in sliders){
   const el=document.getElementById(id), key=sliders[id], v=el.parentNode.querySelector('.val');
   const upd=()=>{ T[key]=parseFloat(el.value); v.textContent=el.value; }; el.addEventListener('input',upd); upd();
@@ -1134,7 +1135,10 @@ function deform(L, e){
         // localized +z bumps at ±nipple (NOT a uniform cross-section swell): the ribcage
         // keeps the plain cylinder while the breasts alone bulge forward and lead the turn
         const bl=(x-nipL)/breastW, br=(x-nipR)/breastW;
-        const breast=Math.exp(-bl*bl)+Math.exp(-br*br);
+        // the breast wrapping to the FAR side bulges more, so its curve still reads on the
+        // far silhouette in 3/4 view (at rest syb=0 → both gains 1, identity preserved)
+        const gainL=1+e.chestWrap*Math.max(0,syb), gainR=1+e.chestWrap*Math.max(0,-syb);
+        const breast=gainL*Math.exp(-bl*bl)+gainR*Math.exp(-br*br);
         zb += cl*breast;
         if(isTop){   // 胸のたわみ driven by the curve (frontally visible thickness)
           const gy=(y-bustCy)/CHEST.ry;
