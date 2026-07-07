@@ -278,6 +278,7 @@ const markVbo=gl.createBuffer();   // dynamic buffer for curve-point markers
 let layers=[], A=null, CW=768, CH=768, FS=1, NP=null, BP=null, FC=null, CHEST=null, HEAD=null, HAIR=null, BODY=null;
 let profY0=0, profY1=1;   // face-profile vertical span (extends a bit below the face bbox to reach the chin tip)
 const bounce={x:0,v:0,dy:0};
+let yawBState=0;   // low-passed body yaw: the torso follows the head with a lag (no twitch)
 
 function mkTex(imgData){
   const t=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,t);
@@ -1042,7 +1043,7 @@ function deform(L, e){
   // *difference* between the yawed and zero-yaw projections is added, so at rest
   // (angleX=0, body=0) the render is pixel-identical to the non-shell pipeline.
   const wB=(bn==='topwear'||bn==='bottomwear')?e.shell*e.bodyShell:0;
-  const yawB=e.angleX*0.45*e.bodyYaw+e.body*0.10;   // follows the head turn at 体の回り込み% + body-tilt hint
+  const yawB=(e.yawB!==undefined)?e.yawB:(e.angleX*0.45*e.bodyYaw+e.body*0.10);   // low-passed in tick
   const cyb=Math.cos(yawB), syb=Math.sin(yawB);
   const fB=BODY?BODY.rz*6:1;
   const bustCy=CHEST?CHEST.cy+e.bustY*70*FS:0;
@@ -1162,9 +1163,10 @@ function deform(L, e){
       let silShift=0;   // near-side breast pushing the outer body silhouette outward under rotation
       if(useChestProf){   // 胸カーブ: two breast masses at the nipples protrude forward per the curve
         const vB=clamp((y-BODY.y0)*bodyInvH,0,1);
-        // confine the bulge to the 胸上→下乳 band so those points set its vertical extent
+        // confine the bulge to the 胸上→下乳 band so those points set its vertical extent;
+        // the bulge swells slightly with the breath cycle so the chest reads as breathing
         const win=smooth((vB-chTop)/chSoft)*smooth((chBot-vB)/chSoft);
-        const cl=chestLUTLookup(vB)*win;
+        const cl=chestLUTLookup(vB)*win*(1+e.breath*0.08);
         // localized +z bumps at ±nipple (NOT a uniform cross-section swell): the ribcage
         // keeps the plain cylinder while the breasts alone bulge forward and lead the turn
         const bl=(x-nipL)/breastW, br=(x-nipR)/breastW;
@@ -1307,6 +1309,10 @@ function tick(now){
   e.physAmp*=camPhysScale; e.soft*=camPhysScale; e.fhAmp*=camPhysScale; e.fhSoft*=camPhysScale;
   e.breath=0.5+0.5*Math.sin(t*2*Math.PI/3.4);
   e.breathHead=0.5+0.5*Math.sin(t*2*Math.PI/3.4-0.6);   // head follows chest with a lag
+  // torso yaw lags the head (~0.4s) so idle head sway becomes a gentle body sway
+  // instead of the chest bump twitching left-right
+  yawBState+=((e.angleX*0.45*e.bodyYaw+e.body*0.10)-yawBState)*Math.min(1,dt*2.5);
+  e.yawB=yawBState;
 
   // strand springs
   const headDX=(e.angleX*14+e.angleZ*0.07*(NP.cy-FC.y))*FS;
