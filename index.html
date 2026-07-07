@@ -211,6 +211,8 @@ header h1{letter-spacing:.05em}
       <div class="row"><label>腕の高さ</label><input type="range" id="pArmY" min="-1" max="1" step="0.01" value="0"><span class="val"></span></div>
       <div class="row"><label>腕位置補正</label><input type="range" id="pArmPos" min="-1" max="1" step="0.01" value="0"><span class="val"></span></div>
       <div class="row"><label>胸の揺れ</label><input type="range" id="pBust" min="0" max="4" step="0.01" value="2.5"><span class="val"></span></div>
+      <div class="row"><label>揺れ減衰</label><input type="range" id="pBustDamp" min="0" max="1" step="0.01" value="0.5"><span class="val"></span></div>
+      <div class="row"><label>ランダムの速さ</label><input type="range" id="pRndSpeed" min="0.25" max="1.5" step="0.01" value="0.6"><span class="val"></span></div>
       <div class="row"><label>胸位置 上下</label><input type="range" id="pBustY" min="-3" max="3" step="0.01" value="1"><span class="val"></span></div>
       <div class="row"><label>後髪の揺れ</label><input type="range" id="pPhysAmp" min="0" max="3" step="0.01" value="2"><span class="val"></span></div>
       <div class="row"><label>後髪柔らかさ</label><input type="range" id="pSoft" min="0" max="3" step="0.01" value="2"><span class="val"></span></div>
@@ -473,7 +475,8 @@ const P = { angleX:0, angleY:0, angleZ:0, eyeOpenL:1, eyeOpenR:1, eyeX:0, eyeY:0
             armY:0, armPos:0, bust:2.5, bustY:1, irisScale:1, mouthEase:0.45, eyeEase:0.3,
             fhAmp:2, fhSoft:0.4, shell:0.5, noseAmp:0.22, chinAmp:0.15, elineAmp:0,
             hairGap:0.18, hairBulge:1, backDepth:0.35, bodyShell:0.5,
-            bodyYaw:1, chestNear:1, chestFar:1, nipXL:0.83, nipXR:0.83, chestCenter:1.5 };
+            bodyYaw:1, chestNear:1, chestFar:1, nipXL:0.83, nipXR:0.83, chestCenter:1.5,
+            bustDamp:0.5, rndSpeed:0.6 };
 const DEFAULTS = Object.assign({}, P);
 let lastPsd=null, lastPre=null;
 const T = Object.assign({}, P);
@@ -489,7 +492,8 @@ const sliders = { pAngleX:'angleX',pAngleY:'angleY',pAngleZ:'angleZ',pEyeL:'eyeO
   pFhAmp:'fhAmp',pFhSoft:'fhSoft',pShell:'shell',pNose:'noseAmp',pChin:'chinAmp',pEline:'elineAmp',
   pHairGap:'hairGap',pHairBulge:'hairBulge',pBackDepth:'backDepth',
   pBodyShell:'bodyShell',pBodyYaw:'bodyYaw',pChestNear:'chestNear',pChestFar:'chestFar',
-  pNipL:'nipXL',pNipR:'nipXR',pChestCenter:'chestCenter' };
+  pNipL:'nipXL',pNipR:'nipXR',pChestCenter:'chestCenter',
+  pBustDamp:'bustDamp',pRndSpeed:'rndSpeed' };
 for(const id in sliders){
   const el=document.getElementById(id), key=sliders[id], v=el.parentNode.querySelector('.val');
   const upd=()=>{ T[key]=parseFloat(el.value); v.textContent=el.value; }; el.addEventListener('input',upd); upd();
@@ -1006,6 +1010,7 @@ function onFace(res){
 // ---------- animation state ----------
 let blinkT=-1, nextBlink=(typeof performance!=='undefined'?performance.now():0)+1800;
 let rnd={ax:0,ay:0,az:0,bd:0,ex:0,ey:0}, nextRnd=0;
+const rndSm={ax:0,ay:0,az:0,bd:0,ex:0,ey:0};   // eased copy of rnd so moves glide instead of snapping
 let talkOn=false, talkV=0, talkTgt=0, nextTalkState=0, nextSyl=0;
 function clamp(v,a,b){return v<a?a:v>b?b:v}
 function smooth(t){t=clamp(t,0,1);return t*t*(3-2*t)}
@@ -1275,13 +1280,16 @@ function tick(now){
     tgt.body +=0.10*Math.sin(t*0.19+2.1);
   }
   if(auto.rand&&!camLive){
-    if(now>nextRnd){ nextRnd=now+1400+Math.random()*2600;
+    // ランダムの速さ: slower = longer holds between picks AND gentler glide toward each pose
+    // (cur.rndSpeed is the same smoothed value e carries later in the frame)
+    if(now>nextRnd){ nextRnd=now+(1400+Math.random()*2600)/Math.max(0.25,cur.rndSpeed);
       rnd.ax=(Math.random()*2-1)*0.55; rnd.ay=(Math.random()*2-1)*0.40;
       rnd.az=(Math.random()*2-1)*0.35; rnd.bd=(Math.random()*2-1)*0.30;
       rnd.ex=(Math.random()*2-1)*0.60; rnd.ey=(Math.random()*2-1)*0.35; }
-    tgt.angleX=clamp(tgt.angleX+rnd.ax,-1,1); tgt.angleY=clamp(tgt.angleY+rnd.ay,-1,1);
-    tgt.angleZ=clamp(tgt.angleZ+rnd.az,-1,1); tgt.body=clamp(tgt.body+rnd.bd,-1,1);
-    tgt.eyeX=clamp(tgt.eyeX+rnd.ex,-1,1); tgt.eyeY=clamp(tgt.eyeY+rnd.ey,-1,1);
+    for(const k in rndSm) rndSm[k]+=(rnd[k]-rndSm[k])*Math.min(1,dt*4*cur.rndSpeed);
+    tgt.angleX=clamp(tgt.angleX+rndSm.ax,-1,1); tgt.angleY=clamp(tgt.angleY+rndSm.ay,-1,1);
+    tgt.angleZ=clamp(tgt.angleZ+rndSm.az,-1,1); tgt.body=clamp(tgt.body+rndSm.bd,-1,1);
+    tgt.eyeX=clamp(tgt.eyeX+rndSm.ex,-1,1); tgt.eyeY=clamp(tgt.eyeY+rndSm.ey,-1,1);
   }
   if(auto.talk){
     if(now>nextTalkState){ talkOn=!talkOn; nextTalkState=now+(talkOn?1200+Math.random()*2200:600+Math.random()*1800); }
@@ -1329,9 +1337,10 @@ function tick(now){
       sp.soft.dx=-(sp.soft.x-txv)*3.0;
     }
   }
-  // bust bounce
+  // bust bounce — 揺れ減衰: 0 = original springy cc=4.2 (ratio ~0.18),
+  // 1 ≈ near-critical (critical for kk=140 is 2*sqrt(140)≈23.7)
   { const bustTgt=(e.breath*3.0 - e.angleY*6.0 + e.body*4.0)*FS;
-    const kk=140, cc=4.2;
+    const kk=140, cc=4.2+e.bustDamp*16;
     const aa=-kk*(bounce.x-bustTgt)-cc*bounce.v; bounce.v+=aa*dt; bounce.x+=bounce.v*dt;
     bounce.dy=-(bounce.x-bustTgt)*3.0; }
 
