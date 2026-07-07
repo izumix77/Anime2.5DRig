@@ -164,6 +164,8 @@ header h1{letter-spacing:.05em}
       <div class="row"><label>胸のたわみ</label><input type="range" id="pChestSag" min="0" max="60" step="1" value="10"><span class="val"></span></div>
       <div class="row"><label>張り出し(手前)</label><input type="range" id="pChestNear" min="0" max="2.5" step="0.01" value="0.8"><span class="val"></span></div>
       <div class="row"><label>引っ張り(奥)</label><input type="range" id="pChestFar" min="0" max="2.5" step="0.01" value="0.4"><span class="val"></span></div>
+      <div class="row"><label>左乳首 位置</label><input type="range" id="pNipL" min="0" max="1.5" step="0.01" value="0.83"><span class="val"></span></div>
+      <div class="row"><label>右乳首 位置</label><input type="range" id="pNipR" min="0" max="1.5" step="0.01" value="0.83"><span class="val"></span></div>
     </div>
     <div class="sec"><h2>横顔カーブ</h2>
       <div class="toggles">
@@ -472,7 +474,7 @@ const P = { angleX:0, angleY:0, angleZ:0, eyeOpenL:1, eyeOpenR:1, eyeX:0, eyeY:0
             armY:0, armPos:0, bust:2.5, bustY:1, irisScale:1, mouthEase:0.45, eyeEase:0.3,
             fhAmp:2, fhSoft:0.4, shell:0.8, noseAmp:0.22, chinAmp:0.15, elineAmp:0,
             hairGap:0.18, hairBulge:1, backDepth:0.35, bodyShell:0.7, chestVol:0.25, chestRing:0.5,
-            bodyYaw:0.35, chestSag:10, chestNear:0.8, chestFar:0.4 };
+            bodyYaw:0.35, chestSag:10, chestNear:0.8, chestFar:0.4, nipXL:0.83, nipXR:0.83 };
 const DEFAULTS = Object.assign({}, P);
 let lastPsd=null, lastPre=null;
 const T = Object.assign({}, P);
@@ -488,7 +490,8 @@ const sliders = { pAngleX:'angleX',pAngleY:'angleY',pAngleZ:'angleZ',pEyeL:'eyeO
   pFhAmp:'fhAmp',pFhSoft:'fhSoft',pShell:'shell',pNose:'noseAmp',pChin:'chinAmp',pEline:'elineAmp',
   pHairGap:'hairGap',pHairBulge:'hairBulge',pBackDepth:'backDepth',
   pBodyShell:'bodyShell',pChestVol:'chestVol',pChestRing:'chestRing',
-  pBodyYaw:'bodyYaw',pChestSag:'chestSag',pChestNear:'chestNear',pChestFar:'chestFar' };
+  pBodyYaw:'bodyYaw',pChestSag:'chestSag',pChestNear:'chestNear',pChestFar:'chestFar',
+  pNipL:'nipXL',pNipR:'nipXR' };
 for(const id in sliders){
   const el=document.getElementById(id), key=sliders[id], v=el.parentNode.querySelector('.val');
   const upd=()=>{ T[key]=parseFloat(el.value); v.textContent=el.value; }; el.addEventListener('input',upd); upd();
@@ -1052,8 +1055,9 @@ function deform(L, e){
   const useChestProf=chestEnabled;
   const bodyInvH=BODY?1/Math.max(1,BODY.y1-BODY.y0):1;
   // two breast masses centred on the nipple x-positions (offset from chest centre)
-  const nipOff=CHEST?CHEST.rx*0.5:0, breastW=CHEST?CHEST.rx*0.40:1;
-  const nipL=CHEST?CHEST.cx-nipOff:0, nipR=CHEST?CHEST.cx+nipOff:0;
+  const breastW=CHEST?CHEST.rx*0.40:1;
+  // per-side nipple x (offset from chest centre, fraction of CHEST.rx; default ~ear line)
+  const nipL=CHEST?CHEST.cx-e.nipXL*CHEST.rx:0, nipR=CHEST?CHEST.cx+e.nipXR*CHEST.rx:0;
   // vertical influence range of the breast bulge: 胸上(top) → 下乳(bottom) of the chest curve
   const chTop=useChestProf?chestPoints[1].v:0, chBot=useChestProf?chestPoints[3].v:1;
   const chSoft=clamp((chBot-chTop)*0.22,0.02,0.08);
@@ -1389,8 +1393,8 @@ function tick(now){
         mk.push(A.face.x0,y, A.face.x1,y); pts.push(A.face.cx,y);
       }
       if(BODY&&CHEST){                                // 胸カーブ: 首元/胸上/胸先/下乳/腰
-        const bh=BODY.y1-BODY.y0, no=CHEST.rx*0.5, bw=CHEST.rx*0.40;
-        const nl=CHEST.cx-no, nr=CHEST.cx+no;
+        const bh=BODY.y1-BODY.y0, bw=CHEST.rx*0.40;
+        const nl=CHEST.cx-e.nipXL*CHEST.rx, nr=CHEST.cx+e.nipXR*CHEST.rx;
         for(const p of chestPoints){
           const y=BODY.y0+p.v*bh;
           mk.push(nl-bw,y, nr+bw,y); pts.push(nl,y, nr,y);
