@@ -1164,6 +1164,7 @@ function deform(L, e){
     if(wB>0.001){
       const ub=(x-BODY.cx)/BODY.rx;
       let zb=Math.sqrt(Math.max(0,1-Math.min(1,ub*ub)));
+      let silShift=0;   // near-side breast pushing the outer body silhouette outward under rotation
       if(useChestProf){   // 胸カーブ: two breast masses at the nipples protrude forward per the curve
         const vB=clamp((y-BODY.y0)*bodyInvH,0,1);
         // confine the bulge to the 胸上→下乳 band so those points set its vertical extent
@@ -1183,6 +1184,12 @@ function deform(L, e){
         if(isTop){   // 胸のたわみ driven by the curve (frontally visible thickness)
           const gy=(y-bustCy)/CHEST.ry;
           y += e.chestSag*FS*Math.max(0,cl)*breast*smooth(gy+0.15);
+          // silhouette bulge: on the near side (side*dir>0) the protruding breast pushes the
+          // outer contour out. Windowed to the outer breast flank (spares the centre and the
+          // sleeve past ub~1.25) for a rounded bulge; scales with rotation, 0 when frontal.
+          const side=ub>=0?1:-1, au=Math.abs(ub);
+          const wEdge=smooth((au-0.2)/0.5)*smooth((1.25-au)/0.35);
+          silShift = side*cl*Math.max(0,side*dir)*wEdge*e.chestNear*BODY.rx*0.20;
         }
       } else if(isTop){   // legacy dome/torus chest bump so the bust leads the turn in 3/4 view
         const gx=(x-CHEST.cx)/CHEST.rx, gy=(y-bustCy)/CHEST.ry;
@@ -1200,7 +1207,7 @@ function deform(L, e){
       const X=ub*BODY.rx, Z=zb*BODY.rz;
       const X2=X*cyb+Z*syb, Z2=-X*syb+Z*cyb;        // yaw around the neck axis
       const scR=fB/(fB-Z2*0.5), sc0=fB/(fB-Z*0.5);  // damped perspective (rotated vs zero-yaw)
-      x += (X2*scR-X*sc0)*wB;
+      x += (X2*scR-X*sc0)*wB + silShift*wB;
     }
     // --- arms ---
     if(bn==='handwear'){
