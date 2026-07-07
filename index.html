@@ -166,6 +166,7 @@ header h1{letter-spacing:.05em}
       <div class="row"><label>引っ張り(奥)</label><input type="range" id="pChestFar" min="0" max="2.5" step="0.01" value="0.4"><span class="val"></span></div>
       <div class="row"><label>左乳首 位置</label><input type="range" id="pNipL" min="0" max="1.5" step="0.01" value="0.83"><span class="val"></span></div>
       <div class="row"><label>右乳首 位置</label><input type="range" id="pNipR" min="0" max="1.5" step="0.01" value="0.83"><span class="val"></span></div>
+      <div class="row"><label>胸中央</label><input type="range" id="pChestCenter" min="0" max="1.5" step="0.01" value="0.3"><span class="val"></span></div>
     </div>
     <div class="sec"><h2>横顔カーブ</h2>
       <div class="toggles">
@@ -474,7 +475,7 @@ const P = { angleX:0, angleY:0, angleZ:0, eyeOpenL:1, eyeOpenR:1, eyeX:0, eyeY:0
             armY:0, armPos:0, bust:2.5, bustY:1, irisScale:1, mouthEase:0.45, eyeEase:0.3,
             fhAmp:2, fhSoft:0.4, shell:0.8, noseAmp:0.22, chinAmp:0.15, elineAmp:0,
             hairGap:0.18, hairBulge:1, backDepth:0.35, bodyShell:0.7, chestVol:0.25, chestRing:0.5,
-            bodyYaw:0.35, chestSag:10, chestNear:0.8, chestFar:0.4, nipXL:0.83, nipXR:0.83 };
+            bodyYaw:0.35, chestSag:10, chestNear:0.8, chestFar:0.4, nipXL:0.83, nipXR:0.83, chestCenter:0.3 };
 const DEFAULTS = Object.assign({}, P);
 let lastPsd=null, lastPre=null;
 const T = Object.assign({}, P);
@@ -491,7 +492,7 @@ const sliders = { pAngleX:'angleX',pAngleY:'angleY',pAngleZ:'angleZ',pEyeL:'eyeO
   pHairGap:'hairGap',pHairBulge:'hairBulge',pBackDepth:'backDepth',
   pBodyShell:'bodyShell',pChestVol:'chestVol',pChestRing:'chestRing',
   pBodyYaw:'bodyYaw',pChestSag:'chestSag',pChestNear:'chestNear',pChestFar:'chestFar',
-  pNipL:'nipXL',pNipR:'nipXR' };
+  pNipL:'nipXL',pNipR:'nipXR',pChestCenter:'chestCenter' };
 for(const id in sliders){
   const el=document.getElementById(id), key=sliders[id], v=el.parentNode.querySelector('.val');
   const upd=()=>{ T[key]=parseFloat(el.value); v.textContent=el.value; }; el.addEventListener('input',upd); upd();
@@ -1179,7 +1180,10 @@ function deform(L, e){
         const dir=clamp(syb*4,-1,1);
         const gainL=1+e.chestNear*Math.max(0,-dir)+e.chestFar*Math.max(0,dir);
         const gainR=1+e.chestNear*Math.max(0, dir)+e.chestFar*Math.max(0,-dir);
-        const breast=gainL*Math.exp(-bl*bl)+gainR*Math.exp(-br*br);
+        // central control point: fills the sternum/cleavage so tops with soft fabric move as one
+        // mass; set to 0 for structured tops (plackets/buttons) where the centre stays flat
+        const bc=(x-CHEST.cx)/breastW;
+        const breast=gainL*Math.exp(-bl*bl)+gainR*Math.exp(-br*br)+e.chestCenter*Math.exp(-bc*bc);
         zb += cl*breast;
         if(isTop){   // 胸のたわみ driven by the curve (frontally visible thickness)
           const gy=(y-bustCy)/CHEST.ry;
@@ -1404,7 +1408,7 @@ function tick(now){
         const nl=CHEST.cx-e.nipXL*CHEST.rx, nr=CHEST.cx+e.nipXR*CHEST.rx;
         for(const p of chestPoints){
           const y=BODY.y0+p.v*bh;
-          mk.push(nl-bw,y, nr+bw,y); pts.push(nl,y, nr,y);
+          mk.push(nl-bw,y, nr+bw,y); pts.push(nl,y, nr,y, CHEST.cx,y);   // + center column
         }
       }
       gl.uniform4f(locLColor,1.0,0.15,0.2,1.0);       // red
