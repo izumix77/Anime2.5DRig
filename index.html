@@ -276,6 +276,7 @@ const markVbo=gl.createBuffer();   // dynamic buffer for curve-point markers
 
 // ---------- model state (mutable, rebuilt per PSD) ----------
 let layers=[], A=null, CW=768, CH=768, FS=1, NP=null, BP=null, FC=null, CHEST=null, HEAD=null, HAIR=null, BODY=null;
+let profY0=0, profY1=1;   // face-profile vertical span (extends a bit below the face bbox to reach the chin tip)
 const bounce={x:0,v:0,dy:0};
 
 function mkTex(imgData){
@@ -321,14 +322,17 @@ function applyRig(rig){
                sx:(A.face.x1-A.face.x0)*0.18, sy:(A.face.y1-A.face.y0)*0.12};
     // per-model profile-curve defaults: pin 鼻根 to eye level (nose root),
     // 鼻先 to the nose anchor, 上唇 to the top of the mouth
-    const v_=yy=>clamp((yy-A.face.y0)/Math.max(1,A.face.y1-A.face.y0),0,1);
+    // profile span runs from the top of the face to ~12% below the bbox, so the 顎 point
+    // can be dragged down to the drawn chin tip (which sits just below the face-layer bottom)
+    profY0=A.face.y0; profY1=A.face.y1+(A.face.y1-A.face.y0)*0.12;
+    const v_=yy=>clamp((yy-profY0)/Math.max(1,profY1-profY0),0,1);
     const rootY=(A.eyeL&&A.eyeR)?((A.eyeL.icy+A.eyeR.icy)/2):(ncy-(A.face.y1-A.face.y0)*0.20);
     profAnchorDefaults=[
-      {v:0.06,          z:0.10},
-      {v:v_(rootY),     z:0.02},
-      {v:v_(ncy),       z:0.30},
-      {v:v_(A.mouth.y0),z:0.06},
-      {v:0.97,          z:0.14}];
+      {v:0.06,           z:0.10},
+      {v:v_(rootY),      z:0.02},
+      {v:v_(ncy),        z:0.30},
+      {v:v_(A.mouth.y0), z:0.06},
+      {v:v_(A.face.y1),  z:0.14}];
     for(let pi=1;pi<profAnchorDefaults.length;pi++)
       profAnchorDefaults[pi].v=Math.max(profAnchorDefaults[pi].v, profAnchorDefaults[pi-1].v+0.03);
     if(!profTouched){   // user hasn't customized the curve — adopt the model-fitted defaults
@@ -1030,7 +1034,7 @@ function deform(L, e){
   const bcx=L.x+L.w/2, bcy=L.y+L.h/2;
   const isFH=(bn==='front hair');
   const useProf=profEnabled;
-  const faceInvH=1/Math.max(1,A.face.y1-A.face.y0);
+  const faceInvH=1/Math.max(1,profY1-profY0);
   // hair layers ride their own scalp shell (HAIR) and skip all face-profile terms:
   // front hair + headwear float above the forehead, back hair recedes behind the head
   const hairMode=(bn==='front hair'||bn==='headwear')?'front':(bn==='back hair'?'back':null);
@@ -1114,7 +1118,7 @@ function deform(L, e){
           zs = -e.backDepth*ellip - 0.05;
         } else if(useProf){
           // 横顔カーブ: draggable side-profile LUT replaces the nose/chin/E-line gaussians
-          const pv=(y-A.face.y0)*faceInvH;
+          const pv=(y-profY0)*faceInvH;
           const pdx=(x-HEAD.cx)/(HEAD.nose.sx*1.9);
           zs = ellip + profLUTLookup(pv)*Math.exp(-pdx*pdx) + (dd-1)*0.55;
         } else {
@@ -1379,9 +1383,9 @@ function tick(now){
     // red curve-point markers (base model coords: horizontal line at each point's height + dots)
     if(A){
       const mk=[], pts=[];
-      const fh=A.face.y1-A.face.y0;
+      const fh=profY1-profY0;
       for(const p of profPoints){                    // 横顔カーブ: 額/鼻根/鼻先/上唇/顎
-        const y=A.face.y0+p.v*fh;
+        const y=profY0+p.v*fh;
         mk.push(A.face.x0,y, A.face.x1,y); pts.push(A.face.cx,y);
       }
       if(BODY&&CHEST){                                // 胸カーブ: 首元/胸上/胸先/下乳/腰
