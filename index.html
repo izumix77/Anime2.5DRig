@@ -266,12 +266,13 @@ gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
 const progLine = gl.createProgram();
 gl.attachShader(progLine, sh(gl.VERTEX_SHADER,
  'attribute vec2 aPos; uniform vec2 uRes;'+
- 'void main(){ vec2 c = aPos/uRes*2.0-1.0; gl_Position=vec4(c.x,-c.y,0.0,1.0); }'));
+ 'void main(){ vec2 c = aPos/uRes*2.0-1.0; gl_Position=vec4(c.x,-c.y,0.0,1.0); gl_PointSize=7.0; }'));
 gl.attachShader(progLine, sh(gl.FRAGMENT_SHADER,
  'precision mediump float; uniform vec4 uColor; void main(){ gl_FragColor=uColor; }'));
 gl.linkProgram(progLine);
 const locLPos=gl.getAttribLocation(progLine,'aPos');
 const locLRes=gl.getUniformLocation(progLine,'uRes'), locLColor=gl.getUniformLocation(progLine,'uColor');
+const markVbo=gl.createBuffer();   // dynamic buffer for curve-point markers
 
 // ---------- model state (mutable, rebuilt per PSD) ----------
 let layers=[], A=null, CW=768, CH=768, FS=1, NP=null, BP=null, FC=null, CHEST=null, HEAD=null, HAIR=null, BODY=null;
@@ -1374,6 +1375,31 @@ function tick(now){
       gl.vertexAttribPointer(locLPos,2,gl.FLOAT,false,0,0);
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,L.lbo);
       gl.drawElements(gl.LINES,L.nLine,gl.UNSIGNED_SHORT,0);
+    }
+    // red curve-point markers (base model coords: horizontal line at each point's height + dots)
+    if(A){
+      const mk=[], pts=[];
+      const fh=A.face.y1-A.face.y0;
+      for(const p of profPoints){                    // 横顔カーブ: 額/鼻根/鼻先/上唇/顎
+        const y=A.face.y0+p.v*fh;
+        mk.push(A.face.x0,y, A.face.x1,y); pts.push(A.face.cx,y);
+      }
+      if(BODY&&CHEST){                                // 胸カーブ: 首元/胸上/胸先/下乳/腰
+        const bh=BODY.y1-BODY.y0, no=CHEST.rx*0.5, bw=CHEST.rx*0.40;
+        const nl=CHEST.cx-no, nr=CHEST.cx+no;
+        for(const p of chestPoints){
+          const y=BODY.y0+p.v*bh;
+          mk.push(nl-bw,y, nr+bw,y); pts.push(nl,y, nr,y);
+        }
+      }
+      gl.uniform4f(locLColor,1.0,0.15,0.2,1.0);       // red
+      gl.bindBuffer(gl.ARRAY_BUFFER,markVbo);
+      gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(mk),gl.DYNAMIC_DRAW);
+      gl.vertexAttribPointer(locLPos,2,gl.FLOAT,false,0,0);
+      gl.drawArrays(gl.LINES,0,mk.length/2);
+      gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(pts),gl.DYNAMIC_DRAW);
+      gl.vertexAttribPointer(locLPos,2,gl.FLOAT,false,0,0);
+      gl.drawArrays(gl.POINTS,0,pts.length/2);
     }
     gl.enable(gl.BLEND);
     gl.useProgram(prog); gl.uniform2f(locRes,CW,CH);
