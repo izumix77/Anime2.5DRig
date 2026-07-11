@@ -1,4 +1,4 @@
-# Koibumi Actor 2.5D Lab
+# Anime2.5DRig - Koibumi Actor 2.5D Lab
 
 [852wa/Anime2.5DRig](https://github.com/852wa/Anime2.5DRig) をベースに、PSD パーツ分けキャラクターをブラウザ上で 2.5D 的に動かす実験 fork です。
 
