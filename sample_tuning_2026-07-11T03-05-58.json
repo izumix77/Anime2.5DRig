@@ -1,0 +1,111 @@
+{
+  "schema": "anime2.5drig-tuning",
+  "version": 1,
+  "exportedAt": "2026-07-11T03:05:58.993Z",
+  "params": {
+    "angleX": 0,
+    "angleY": 0,
+    "angleZ": 0,
+    "eyeOpenL": 1,
+    "eyeOpenR": 1,
+    "eyeX": 0,
+    "eyeY": 0,
+    "brow": 0,
+    "mouthOpen": 0,
+    "mouthForm": 0,
+    "body": 0,
+    "physAmp": 2,
+    "soft": 2,
+    "mouthCY": 0,
+    "browAngL": 0,
+    "browAngR": 0,
+    "browAngSym": 0,
+    "bangL": 0,
+    "bangC": 0,
+    "bangR": 0,
+    "armY": 0,
+    "armPos": 0,
+    "bust": 2.5,
+    "bustY": 1,
+    "irisScale": 1,
+    "mouthEase": 0.45,
+    "eyeEase": 0.3,
+    "fhAmp": 2,
+    "fhSoft": 0.4,
+    "fhCrownRound": 1.48,
+    "shell": 0.5,
+    "noseAmp": 0.6,
+    "chinAmp": 0.3,
+    "elineAmp": -0.1,
+    "hairGap": 0.18,
+    "hairBulge": 1,
+    "backDepth": 0.35,
+    "pinX": 0,
+    "pinY": -0.45,
+    "pinW": 1.1,
+    "pinH": 0.32,
+    "pinFeather": 0.06,
+    "bodyShell": 0.5,
+    "bodyYaw": 1,
+    "chestNear": 1,
+    "chestFar": 1,
+    "nipXL": 0.83,
+    "nipXR": 0.83,
+    "chestCenter": 1.5,
+    "bustDamp": 0.5,
+    "rndSpeed": 0.6
+  },
+  "options": {
+    "part": false,
+    "profileEnabled": true,
+    "chestEnabled": true
+  },
+  "profile": {
+    "points": [
+      {
+        "v": 0.2419644382277771,
+        "z": 0.2521820450682857
+      },
+      {
+        "v": 0.4817501780666953,
+        "z": 0.1925897616297081
+      },
+      {
+        "v": 0.5977755360532685,
+        "z": 0.7239542889570251
+      },
+      {
+        "v": 0.7447409895029281,
+        "z": 0.4309588953840183
+      },
+      {
+        "v": 0.9303815622814453,
+        "z": 0.2968762576472188
+      }
+    ]
+  },
+  "chest": {
+    "points": [
+      {
+        "v": 0.027559245448421896,
+        "z": 0.04360905303326407
+      },
+      {
+        "v": 0.2518749375557969,
+        "z": 0.11313338371160453
+      },
+      {
+        "v": 0.5380708205893443,
+        "z": 0.574973580360581
+      },
+      {
+        "v": 0.7082413456363185,
+        "z": 0.11809940733148605
+      },
+      {
+        "v": 0.8706768468175211,
+        "z": 0.08830326561219726
+      }
+    ]
+  }
+}

@@ -202,6 +202,16 @@ header h1{letter-spacing:.05em}
     <div class="sec"><h2>前髪</h2>
       <div class="row"><label>揺れ</label><input type="range" id="pFhAmp" min="0" max="3" step="0.01" value="2"><span class="val"></span></div>
       <div class="row"><label>柔らかさ</label><input type="range" id="pFhSoft" min="0" max="2" step="0.01" value="0.4"><span class="val"></span></div>
+      <div class="row"><label>頭頂回り込み</label><input type="range" id="pFhCrownRound" min="0" max="2.5" step="0.01" value="0"><span class="val"></span></div>
+      <div class="toggles">
+        <div class="tg" id="tgPart">生え際を固定</div>
+        <div class="tg" id="tgPartViz">密着域を表示</div>
+      </div>
+      <div class="row"><label>密着域 中心X</label><input type="range" id="pPinX" min="-1" max="1" step="0.01" value="0"><span class="val"></span></div>
+      <div class="row"><label>密着域 中心Y</label><input type="range" id="pPinY" min="-1" max="1" step="0.01" value="-0.45"><span class="val"></span></div>
+      <div class="row"><label>密着域 幅</label><input type="range" id="pPinW" min="0.10" max="1.50" step="0.01" value="1.10"><span class="val"></span></div>
+      <div class="row"><label>密着域 高さ</label><input type="range" id="pPinH" min="0.05" max="1.00" step="0.01" value="0.32"><span class="val"></span></div>
+      <div class="row"><label>境界ぼかし</label><input type="range" id="pPinFeather" min="0" max="0.30" step="0.01" value="0.06"><span class="val"></span></div>
       <div class="row"><label>ブロック左</label><input type="range" id="pBangL" min="-1" max="1" step="0.01" value="0"><span class="val"></span></div>
       <div class="row"><label>ブロック中央</label><input type="range" id="pBangC" min="-1" max="1" step="0.01" value="0"><span class="val"></span></div>
       <div class="row"><label>ブロック右</label><input type="range" id="pBangR" min="-1" max="1" step="0.01" value="0"><span class="val"></span></div>
@@ -220,8 +230,11 @@ header h1{letter-spacing:.05em}
     <div class="sec"><h2>ユーティリティ</h2>
       <div class="btns">
         <button class="btn" id="btnReset">数値リセット</button>
+        <button class="btn" id="btnExportTune">調整値を書出</button>
+        <button class="btn" id="btnImportTune">調整値を読込</button>
         <button class="btn" id="btnSavePsd">軽量PSDを保存</button>
       </div>
+      <input type="file" id="tuneInput" accept=".json,application/json" style="display:none">
       <div id="utilStatus" style="font-size:11px;color:var(--sub);margin-top:6px"></div>
     </div>
     <div class="sec"><h2>背景</h2>
@@ -382,7 +395,7 @@ function applyRig(rig){
     const lidx=[];
     for(let j=0;j<=ny;j++) for(let i=0;i<nx;i++){ const a=j*(nx+1)+i; lidx.push(a,a+1); }
     for(let i=0;i<=nx;i++) for(let j=0;j<ny;j++){ const a=j*(nx+1)+i; lidx.push(a,a+nx+1); }
-    L.base=base; L.cur=new Float32Array(base); L.nIdx=idx.length; L.nLine=lidx.length;
+    L.base=base; L.cur=new Float32Array(base); L.nIdx=idx.length; L.nLine=lidx.length; L.nx=nx; L.ny=ny;
     L.bn=Rigger.baseName(L.name.replace(/_(l|r)$/,''));
     if(L.strands&&L.strands.length){
       const S=L.strands, nS=S.length;
@@ -473,15 +486,17 @@ const P = { angleX:0, angleY:0, angleZ:0, eyeOpenL:1, eyeOpenR:1, eyeX:0, eyeY:0
             mouthOpen:0, mouthForm:0, mouthCY:0, body:0, physAmp:2, soft:2,
             browAngL:0, browAngR:0, browAngSym:0, bangL:0, bangC:0, bangR:0,
             armY:0, armPos:0, bust:2.5, bustY:1, irisScale:1, mouthEase:0.45, eyeEase:0.3,
-            fhAmp:2, fhSoft:0.4, shell:0.5, noseAmp:0.22, chinAmp:0.15, elineAmp:0,
+            fhAmp:2, fhSoft:0.4, fhCrownRound:0, shell:0.5, noseAmp:0.22, chinAmp:0.15, elineAmp:0,
             hairGap:0.18, hairBulge:1, backDepth:0.35, bodyShell:0.5,
+            pinX:0, pinY:-0.45, pinW:1.10, pinH:0.32, pinFeather:0.06,
             bodyYaw:1, chestNear:1, chestFar:1, nipXL:0.83, nipXR:0.83, chestCenter:1.5,
             bustDamp:0.5, rndSpeed:0.6 };
 const DEFAULTS = Object.assign({}, P);
 let lastPsd=null, lastPre=null;
 const T = Object.assign({}, P);
 const cur = Object.assign({}, P);
-const auto = { idle:true, blink:true, rand:true, talk:true, mouse:false, mic:false, phys:true, cam:false, mesh:false };
+const auto = { idle:true, blink:true, rand:true, talk:true, mouse:false, mic:false, phys:true, cam:false, mesh:false, part:false, partViz:false };
+let pinPreviewUntil=0;   // 矩形操作の直後だけ、密着域を短く表示して効果を確認しやすくする
 
 const sliders = { pAngleX:'angleX',pAngleY:'angleY',pAngleZ:'angleZ',pEyeL:'eyeOpenL',pEyeR:'eyeOpenR',
   pEyeX:'eyeX',pEyeY:'eyeY',pBrow:'brow',pMouthOpen:'mouthOpen',pMouthForm:'mouthForm',
@@ -489,14 +504,17 @@ const sliders = { pAngleX:'angleX',pAngleY:'angleY',pAngleZ:'angleZ',pEyeL:'eyeO
   pBrowAngL:'browAngL',pBrowAngR:'browAngR',pBrowAngSym:'browAngSym',
   pBangL:'bangL',pBangC:'bangC',pBangR:'bangR',pArmY:'armY',pArmPos:'armPos',
   pBust:'bust',pBustY:'bustY',pIrisScale:'irisScale',pMouthEase:'mouthEase',pEyeEase:'eyeEase',
-  pFhAmp:'fhAmp',pFhSoft:'fhSoft',pShell:'shell',pNose:'noseAmp',pChin:'chinAmp',pEline:'elineAmp',
+  pFhAmp:'fhAmp',pFhSoft:'fhSoft',pFhCrownRound:'fhCrownRound',pShell:'shell',pNose:'noseAmp',pChin:'chinAmp',pEline:'elineAmp',
   pHairGap:'hairGap',pHairBulge:'hairBulge',pBackDepth:'backDepth',
+  pPinX:'pinX',pPinY:'pinY',pPinW:'pinW',pPinH:'pinH',pPinFeather:'pinFeather',
   pBodyShell:'bodyShell',pBodyYaw:'bodyYaw',pChestNear:'chestNear',pChestFar:'chestFar',
   pNipL:'nipXL',pNipR:'nipXR',pChestCenter:'chestCenter',
   pBustDamp:'bustDamp',pRndSpeed:'rndSpeed' };
 for(const id in sliders){
   const el=document.getElementById(id), key=sliders[id], v=el.parentNode.querySelector('.val');
-  const upd=()=>{ T[key]=parseFloat(el.value); v.textContent=el.value; }; el.addEventListener('input',upd); upd();
+  const upd=()=>{ T[key]=parseFloat(el.value); v.textContent=el.value;
+    if(key.indexOf('pin')===0) pinPreviewUntil=performance.now()+900; };
+  el.addEventListener('input',upd); upd();
 }
 function setSlider(key,val){ for(const id in sliders) if(sliders[id]===key){
   const el=document.getElementById(id); el.value=val; el.dispatchEvent(new Event('input')); } }
@@ -767,13 +785,33 @@ window.addEventListener('mouseup',()=>{
 });
 window.__setChestPoints=function(pts){ chestPoints=pts.map(p=>Object.assign({},p)); rebuildChestLUT(); drawChestCv(); }; // test hook
 window.__getChestPoints=function(){ return chestPoints.map(p=>({v:p.v,z:p.z})); }; // test hook
+window.__pinProbe=function(angleX,partOn,tx,ty,over){ // test hook: deform the front-hair vertex nearest (tx,ty), no rAF needed
+  const L=layers.find(l=>l.bn==='front hair'); if(!L||!A) return null;
+  const saved=auto.part; auto.part=partOn;
+  const e=Object.assign({},cur,over||{});
+  e.angleX=angleX; e.angleY=0; e.angleZ=0; e.body=0; e.breath=0; e.breathHead=0; e.yawB=0;
+  const pinCx=HEAD.cx+e.pinX*HEAD.rx, pinCy=HEAD.cy+e.pinY*HEAD.ry;
+  const pinHw=e.pinW*HEAD.rx, pinHh=e.pinH*HEAD.ry;
+  if(tx===undefined){ tx=pinCx; ty=pinCy; }
+  let bi=0,bd=1e9;
+  for(let k=0;k<L.base.length;k+=2){ const d=Math.hypot(L.base[k]-tx,L.base[k+1]-ty); if(d<bd){bd=d;bi=k;} }
+  deform(L,e);
+  const edge=frontHairPinEdge(L.base[bi],L.base[bi+1],pinCx,pinCy,pinHw,pinHh);
+  const weight=partOn?frontHairPinWeight(L.base[bi],L.base[bi+1],pinCx,pinCy,pinHw,pinHh,e):0;
+  const r={base:[L.base[bi],L.base[bi+1]],out:[L.cur[bi],L.cur[bi+1]],part:auto.part,
+           pinRect:{x:pinCx,y:pinCy,halfW:pinHw,halfH:pinHh},pinEdge:edge,pinWeight:weight};
+  auto.part=saved; return r;
+};
 
-[['tgIdle','idle'],['tgBlink','blink'],['tgRand','rand'],['tgTalk','talk'],['tgCam','cam'],['tgMouse','mouse'],['tgMic','mic'],['tgPhys','phys'],['tgMesh','mesh']].forEach(([id,key])=>{
+[['tgIdle','idle'],['tgBlink','blink'],['tgRand','rand'],['tgTalk','talk'],['tgCam','cam'],['tgMouse','mouse'],['tgMic','mic'],['tgPhys','phys'],['tgMesh','mesh'],['tgPart','part'],['tgPartViz','partViz']].forEach(([id,key])=>{
   const el=document.getElementById(id);
   el.addEventListener('click',()=>{ auto[key]=!auto[key]; el.classList.toggle('on',auto[key]);
     if(key==='mic'&&auto.mic) initMic();
+    if(key==='part') localStorage.setItem('a25d_part',auto.part?'1':'0');
     if(key==='cam'){ if(auto.cam) initCam(); else el.textContent='カメラ追従'; } });
 });
+// 生え際固定はモデル設定としてリロード後も維持する。
+if(localStorage.getItem('a25d_part')==='1'){ auto.part=true; document.getElementById('tgPart').classList.add('on'); }
 const presets={
   neutral:{eyeOpenL:1,eyeOpenR:1,brow:0,mouthOpen:0,mouthForm:0,irisScale:1},
   smile:{eyeOpenL:0,eyeOpenR:0,brow:0.45,mouthOpen:0,mouthForm:0.9,irisScale:1},
@@ -836,6 +874,86 @@ document.getElementById('btnReset').addEventListener('click',()=>{
   activePreset=null; clearPresetHighlight();
   for(const id in sliders) setSlider(sliders[id], DEFAULTS[sliders[id]]);
   document.getElementById('utilStatus').textContent='全パラメータを初期値に戻しました';
+});
+function currentSliderParams(){
+  const params={};
+  for(const id in sliders){
+    const key=sliders[id], el=document.getElementById(id);
+    params[key]=parseFloat(el.value);
+  }
+  return params;
+}
+function setModelToggle(id,key,on){
+  const el=document.getElementById(id);
+  auto[key]=!!on; el.classList.toggle('on',auto[key]);
+  if(key==='part') try{ localStorage.setItem('a25d_part',auto.part?'1':'0'); }catch(err){}
+}
+function buildTuningExport(){
+  return {
+    schema:'anime2.5drig-tuning',
+    version:1,
+    exportedAt:new Date().toISOString(),
+    params:currentSliderParams(),
+    options:{part:auto.part, profileEnabled:profEnabled, chestEnabled:chestEnabled},
+    profile:{points:profPoints.map(p=>({v:p.v,z:p.z}))},
+    chest:{points:chestPoints.map(p=>({v:p.v,z:p.z}))}
+  };
+}
+function applyTuningImport(data){
+  if(!data||typeof data!=='object') throw new Error('JSONの形式が違います');
+  const params=(data.params&&typeof data.params==='object')?data.params:data;
+  const num=(v,fallback)=>{ const n=parseFloat(v); return Number.isFinite(n)?n:fallback; };
+  let count=0;
+  for(const id in sliders){
+    const key=sliders[id], el=document.getElementById(id);
+    if(params[key]===undefined) continue;
+    const n=parseFloat(params[key]);
+    if(!Number.isFinite(n)) continue;
+    const mn=parseFloat(el.min), mx=parseFloat(el.max);
+    setSlider(key, clamp(n,mn,mx)); count++;
+  }
+  if(data.options&&data.options.part!==undefined) setModelToggle('tgPart','part',data.options.part);
+  if(data.options&&data.options.profileEnabled!==undefined){
+    profEnabled=!!data.options.profileEnabled; tgProfCurve.classList.toggle('on',profEnabled);
+    persistProfile();
+  }
+  if(data.profile&&Array.isArray(data.profile.points)&&data.profile.points.length===PROF_DEFAULTS.length){
+    profPoints=data.profile.points.map((p,i)=>({v:clamp(num(p.v,PROF_DEFAULTS[i].v),0,1),z:clamp(num(p.z,PROF_DEFAULTS[i].z),-0.4,0.8)}));
+    rebuildProfLUT(); drawProfCv(); syncProfToSliders(); persistProfile();
+  }
+  if(data.options&&data.options.chestEnabled!==undefined){
+    chestEnabled=!!data.options.chestEnabled; tgChestCurve.classList.toggle('on',chestEnabled);
+    persistChestProfile();
+  }
+  if(data.chest&&Array.isArray(data.chest.points)&&data.chest.points.length===CHEST_DEFAULTS.length){
+    chestPoints=data.chest.points.map((p,i)=>({v:clamp(num(p.v,CHEST_DEFAULTS[i].v),0,1),z:clamp(num(p.z,CHEST_DEFAULTS[i].z),-0.4,0.8)}));
+    rebuildChestLUT(); drawChestCv(); persistChestProfile();
+  }
+  return count;
+}
+document.getElementById('btnExportTune').addEventListener('click',()=>{
+  const st=document.getElementById('utilStatus');
+  try{
+    const blob=new Blob([JSON.stringify(buildTuningExport(),null,2)],{type:'application/json'});
+    const a=document.createElement('a');
+    const stamp=new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);
+    a.href=URL.createObjectURL(blob); a.download='anime25d_tuning_'+stamp+'.json'; a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),5000);
+    st.textContent='調整値JSONを書き出しました';
+  }catch(err){ st.textContent='調整値の書き出しエラー: '+err.message; }
+});
+document.getElementById('btnImportTune').addEventListener('click',()=>{
+  const inp=document.getElementById('tuneInput');
+  inp.value=''; inp.click();
+});
+document.getElementById('tuneInput').addEventListener('change',async ev=>{
+  const st=document.getElementById('utilStatus'), f=ev.target.files&&ev.target.files[0];
+  if(!f) return;
+  try{
+    const data=JSON.parse(await f.text());
+    const count=applyTuningImport(data);
+    st.textContent='調整値JSONを読み込みました（'+count+'項目）';
+  }catch(err){ st.textContent='調整値の読み込みエラー: '+err.message; }
 });
 document.getElementById('btnSavePsd').addEventListener('click',()=>{
   const st=document.getElementById('utilStatus');
@@ -1015,6 +1133,20 @@ let talkOn=false, talkV=0, talkTgt=0, nextTalkState=0, nextSyl=0;
 function clamp(v,a,b){return v<a?a:v>b?b:v}
 function smooth(t){t=clamp(t,0,1);return t*t*(3-2*t)}
 
+// The user-authored rectangle is a fixed scalp anchor, not a root-to-tip range.
+// Vertices inside it always use the face shell; only a small OUTSIDE feather blends
+// into the floating hair shell, so the true hairline never shifts as a range changes.
+function frontHairPinEdge(x,y,cx,cy,halfW,halfH){
+  return Math.max((Math.abs(x-cx)-halfW)/HEAD.rx,(Math.abs(y-cy)-halfH)/HEAD.ry);
+}
+function frontHairPinWeight(x,y,cx,cy,halfW,halfH,e){
+  const ox=Math.max(0,Math.abs(x-cx)-halfW)/HEAD.rx;
+  const oy=Math.max(0,Math.abs(y-cy)-halfH)/HEAD.ry;
+  const outside=Math.hypot(ox,oy), feather=e.pinFeather;
+  if(feather<=0.001) return outside<=1e-6?1:0;
+  return 1-smooth(outside/feather);
+}
+
 function fadeAlpha(L,e){
   if(!L.fade) return 1;
   if(L.fade==='eyeOpen'){ const v=L.side==='L'?e.eyeOpenL:e.eyeOpenR; return smooth((v-(0.10+e.eyeEase*0.45))/0.15); }
@@ -1043,6 +1175,12 @@ function deform(L, e){
   // front hair + headwear float above the forehead, back hair recedes behind the head
   const hairMode=(bn==='front hair'||bn==='headwear')?'front':(bn==='back hair'?'back':null);
   const ELL=hairMode?HAIR:HEAD;
+  // 生え際固定: the user-authored rectangle is evaluated in the unrotated model space,
+  // then its contents are projected on the HEAD shell with no hair gap or bulge.
+  const pinCx=HEAD.cx+e.pinX*HEAD.rx, pinCy=HEAD.cy+e.pinY*HEAD.ry;
+  const pinHw=e.pinW*HEAD.rx, pinHh=e.pinH*HEAD.ry;
+  const doPin=isFH&&auto.part;   // OFF = legacy full-bangs float
+  const crownStartY=HEAD.cy-HEAD.ry*0.18, crownSpan=Math.max(1,HEAD.ry*0.62);
   // body 3D shell: topwear/bottomwear ride a vertical elliptic cylinder (not neck —
   // it bridges to the head; not handwear — arms on a cylinder look wrong). Only the
   // *difference* between the yawed and zero-yaw projections is added, so at rest
@@ -1096,13 +1234,25 @@ function deform(L, e){
       y += mo*6*FS*smooth((y-A.mouth.cy)/(A.face.y1-A.mouth.cy));
     }
     // --- head transform ---
+    // Keep this per-vertex value for the later bang-block and spring passes.  Those
+    // passes run after shell projection, so they must also be disabled in a fixed scalp area.
+    let pinWeight=0;
     let hw = isHead?1:(L.group==='body'?0.16:0);   // body subtly follows head XYZ
     if(bn==='neck') hw = 0.55*smooth((A.neckBottom-y)/Math.max(1,A.neckBottom-A.neckTop));
     if(hw>0){
       let rx=x-NP.cx, ry=y-NP.cy;
       const rx2=rx*cz-ry*sz, ry2=rx*sz+ry*cz;
       x+=(rx2-rx)*hw; y+=(ry2-ry)*hw;
-      const dd=L.depth;
+      // 生え際固定: membership uses the base mesh so the authored rectangle remains fixed
+      // to the head. Computed here because BOTH motion paths (A and B) must respect it.
+      let wR=0;
+      if(doPin){
+        wR=frontHairPinWeight(b[k],b[k+1],pinCx,pinCy,pinHw,pinHh,e);
+      }
+      pinWeight=wR;
+      // the pinned region moves at the face's depth (1.0), not the hair slot (1.28) —
+      // otherwise the legacy-parallax share of the blend still drags it off the forehead
+      const dd=L.depth+(1-L.depth)*wR;
       // A) legacy parallax + shear
       const px = x + hw*FS*( e.angleX*(14+40*(dd-1)) + e.angleX*(NP.cy-y)*0.028 );
       const py = y + hw*FS*( -e.angleY*(9+30*(dd-1)) - e.angleY*(dd-1)*(y-FC.y)*0.05 );
@@ -1112,6 +1262,7 @@ function deform(L, e){
         const u=(x-ELL.cx)/ELL.rx, v=(y-ELL.cy)/ELL.ry;
         const r2=u*u+v*v;
         const ellip=Math.sqrt(Math.max(0,1-Math.min(1,r2)));
+        const crown=isFH?smooth((crownStartY-y)/crownSpan)*Math.sqrt(Math.max(0,1-u*u)):0;
         let zs;
         if(hairMode==='front'){
           // scalp shell + explicit gap: bangs/hats float above the forehead;
@@ -1148,7 +1299,36 @@ function deform(L, e){
         const X2=X*cyw+Z*syw, Z2=-X*syw+Z*cyw;      // yaw around vertical axis
         const Y2=Y*cpt-Z2*spt, Z3=Y*spt+Z2*cpt;     // pitch around horizontal axis
         const f=ELL.rz*5.0, sc=f/(f-Z3*0.5);        // damped perspective
-        const sx=ELL.cx+X2*sc, sy=ELL.cy+Y2*sc;
+        let sx=ELL.cx+X2*sc, sy=ELL.cy+Y2*sc;
+        if(crown>0.001 && e.fhCrownRound>0.001){
+          // 頭頂回り込み: do not add Z depth (that protrudes toward the viewer).
+          // Instead, the upper bangs slide slightly toward the crown in screen space.
+          const p=clamp(e.fhCrownRound*crown*0.30*(1-wR),0,0.60);
+          const crownX=HEAD.cx+(x-HEAD.cx)*0.55, crownY=HEAD.cy-HEAD.ry*0.88;
+          sx += (crownX-sx)*p; sy += (crownY-sy)*p;
+        }
+        if(wR>0.001){
+          // reproject this vertex as if it were face skin (HEAD shell, no gap/bulge),
+          // matching the profile curve so the pinned region tracks the forehead exactly.
+          // Difference-only (like the body shell): the pin adds the scalp's rotation
+          // DELTA to the hair's rest projection, so the frontal render stays identical
+          const uH=(x-HEAD.cx)/HEAD.rx, vH=(y-HEAD.cy)/HEAD.ry;
+          const eH=Math.sqrt(Math.max(0,1-Math.min(1,uH*uH+vH*vH)));
+          let zH=eH;
+          if(useProf){
+            const pv=(y-profY0)*faceInvH;
+            const pdx=(x-HEAD.cx)/(HEAD.nose.sx*1.9);
+            zH=eH+profLUTLookup(pv)*Math.exp(-pdx*pdx);
+          }
+          const XH=uH*HEAD.rx, YH=vH*HEAD.ry, ZH=zH*HEAD.rz;
+          const XH2=XH*cyw+ZH*syw, ZH2=-XH*syw+ZH*cyw;
+          const YH2=YH*cpt-ZH2*spt, ZH3=YH*spt+ZH2*cpt;
+          const fH=HEAD.rz*5.0, scH=fH/(fH-ZH3*0.5), sc0H=fH/(fH-ZH*0.5);
+          const sc0=f/(f-Z*0.5);   // hair shell at rest (yaw=0, pitch=0)
+          const tx=(ELL.cx+X*sc0)+(XH2*scH-XH*sc0H);   // hair rest + scalp motion delta
+          const ty=(ELL.cy+Y*sc0)+(YH2*scH-YH*sc0H);
+          sx+=(tx-sx)*wR; sy+=(ty-sy)*wR;
+        }
         x=px+(sx-px)*wS; y=py+(sy-py)*wS;
       } else { x=px; y=py; }
     }
@@ -1208,13 +1388,15 @@ function deform(L, e){
       x += e.armY*6*FS*w*(x<NP.cx?1:-1);
     }
     // --- bang blocks ---
-    if(L.bw&&L.su){ const m=Math.pow(L.su[vi],1.4)*22*FS;
+    if(L.bw&&L.su){ const m=Math.pow(L.su[vi],1.4)*22*FS*(1-pinWeight);
       x += (e.bangL*L.bw[vi*3]+e.bangC*L.bw[vi*3+1]+e.bangR*L.bw[vi*3+2])*m;
     }
     // --- hair strand physics (stiff top, fluffy bottom; front hair has own params) ---
     if(nS && auto.phys){
       const u=isFH?Math.min(1,L.su[vi]*1.6):L.su[vi];
-      const amp=Math.pow(u,isFH?1.8:2.1)*(isFH?e.fhAmp:e.physAmp);
+      // The rectangle has already been projected with the face.  Do not add any
+      // strand motion back onto it; the feather blends motion in only outside the pin.
+      const amp=Math.pow(u,isFH?1.8:2.1)*(isFH?e.fhAmp:e.physAmp)*(1-pinWeight);
       const softMix=Math.pow(u,1.2)*(isFH?e.fhSoft:e.soft);
       let dx=0;
       for(let s=0;s<nS;s++){
@@ -1376,22 +1558,58 @@ function tick(now){
     }
   }
   // --- debug: deformed mesh wireframe overlay (same GL coords as the textured pass) ---
-  if(auto.mesh){
+  const showPartViz=auto.partViz||now<pinPreviewUntil;
+  if(auto.mesh||showPartViz){
     gl.useProgram(progLine);
     gl.disable(gl.BLEND);   // solid lines, visible over any background
     gl.uniform2f(locLRes,CW,CH);
-    gl.uniform4f(locLColor,0.15,1.0,0.35,1.0);
     gl.enableVertexAttribArray(locLPos);
     for(const L of layers){
       const fa=fadeAlpha(L,e);
       if(fa<0.004 && !(L.fade==='eyeOpen'&&L.name.indexOf('eyewhite')===0)) continue;
+      const isFHL=(L.bn==='front hair'||L.bn==='headwear'), isBHL=(L.bn==='back hair');
+      if(!auto.mesh && !(L.bn==='front hair')) continue;   // 密着域表示 only: draw just the bangs mesh
+      // part colours: front hair/headwear=orange, back hair=blue, everything else=green
+      if(isFHL) gl.uniform4f(locLColor,1.0,0.62,0.1,1.0);
+      else if(isBHL) gl.uniform4f(locLColor,0.3,0.55,1.0,1.0);
+      else gl.uniform4f(locLColor,0.15,1.0,0.35,1.0);
       gl.bindBuffer(gl.ARRAY_BUFFER,L.vboPos);   // already holds this frame's L.cur
       gl.vertexAttribPointer(locLPos,2,gl.FLOAT,false,0,0);
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,L.lbo);
       gl.drawElements(gl.LINES,L.nLine,gl.UNSIGNED_SHORT,0);
     }
+    // 密着域マーカー: draw the user-authored rectangle's edge on the deformed mesh.
+    // It flashes briefly while any rectangle control is dragged.
+    if(showPartViz&&A&&HEAD){
+      const pinCx=HEAD.cx+e.pinX*HEAD.rx, pinCy=HEAD.cy+e.pinY*HEAD.ry;
+      const pinHw=e.pinW*HEAD.rx, pinHh=e.pinH*HEAD.ry;
+      const edge=[];
+      for(const L of layers){
+        if(L.bn!=='front hair') continue;
+        const cols=L.nx+1;
+        const cross=(ia,ib)=>{
+          const ax=L.base[ia*2], ay=L.base[ia*2+1], bx=L.base[ib*2], by=L.base[ib*2+1];
+          const fa=frontHairPinEdge(ax,ay,pinCx,pinCy,pinHw,pinHh);
+          const fb=frontHairPinEdge(bx,by,pinCx,pinCy,pinHw,pinHh);
+          if((fa<0&&fb>0)||(fa>0&&fb<0)){
+            const t=fa/(fa-fb), oa=ia*2, ob=ib*2;
+            edge.push(L.cur[oa]+(L.cur[ob]-L.cur[oa])*t,L.cur[oa+1]+(L.cur[ob+1]-L.cur[oa+1])*t);
+          }
+        };
+        for(let j=0;j<=L.ny;j++) for(let i=0;i<=L.nx;i++){
+          const v=j*cols+i;
+          if(i<L.nx) cross(v,v+1);
+          if(j<L.ny) cross(v,v+cols);
+        }
+      }
+      gl.uniform4f(locLColor,1.0,0.2,0.9,1.0);
+      gl.bindBuffer(gl.ARRAY_BUFFER,markVbo);
+      gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(edge),gl.DYNAMIC_DRAW);
+      gl.vertexAttribPointer(locLPos,2,gl.FLOAT,false,0,0);
+      gl.drawArrays(gl.POINTS,0,edge.length/2);
+    }
     // red curve-point markers (base model coords: horizontal line at each point's height + dots)
-    if(A){
+    if(auto.mesh&&A){
       const mk=[], pts=[];
       const fh=profY1-profY0;
       for(const p of profPoints){                    // 横顔カーブ: 額/鼻根/鼻先/上唇/顎
