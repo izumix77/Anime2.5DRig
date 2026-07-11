@@ -232,6 +232,7 @@ header h1{letter-spacing:.05em}
         <button class="btn" id="btnReset">数値リセット</button>
         <button class="btn" id="btnExportTune">調整値を書出</button>
         <button class="btn" id="btnImportTune">調整値を読込</button>
+        <button class="btn" id="btnRecord">録画開始</button>
         <button class="btn" id="btnSavePsd">軽量PSDを保存</button>
       </div>
       <input type="file" id="tuneInput" accept=".json,application/json" style="display:none">
@@ -954,6 +955,39 @@ document.getElementById('tuneInput').addEventListener('change',async ev=>{
     const count=applyTuningImport(data);
     st.textContent='調整値JSONを読み込みました（'+count+'項目）';
   }catch(err){ st.textContent='調整値の読み込みエラー: '+err.message; }
+});
+let rec=null, recChunks=[];
+document.getElementById('btnRecord').addEventListener('click',()=>{
+  const btn=document.getElementById('btnRecord'), st=document.getElementById('utilStatus');
+  if(rec&&rec.state==='recording'){ rec.stop(); return; }
+  if(!cv.captureStream||typeof MediaRecorder==='undefined'){
+    st.textContent='このブラウザはキャンバス録画に対応していません';
+    return;
+  }
+  try{
+    const stream=cv.captureStream(30);
+    const mime=MediaRecorder.isTypeSupported('video/webm;codecs=vp9')?'video/webm;codecs=vp9':'video/webm';
+    recChunks=[];
+    rec=new MediaRecorder(stream,{mimeType:mime});
+    rec.ondataavailable=e=>{ if(e.data&&e.data.size) recChunks.push(e.data); };
+    rec.onstop=()=>{
+      stream.getTracks().forEach(t=>t.stop());
+      const blob=new Blob(recChunks,{type:'video/webm'});
+      const a=document.createElement('a');
+      const stamp=new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);
+      a.href=URL.createObjectURL(blob); a.download='anime25d_capture_'+stamp+'.webm'; a.click();
+      setTimeout(()=>URL.revokeObjectURL(a.href),5000);
+      btn.textContent='録画開始'; btn.classList.remove('active');
+      st.textContent='録画を保存しました（キャンバスのみ）';
+      rec=null; recChunks=[];
+    };
+    rec.start();
+    btn.textContent='録画停止'; btn.classList.add('active');
+    st.textContent='録画中…もう一度押すと保存します（キャンバスのみ）';
+  }catch(err){
+    st.textContent='録画開始エラー: '+err.message;
+    rec=null; recChunks=[];
+  }
 });
 document.getElementById('btnSavePsd').addEventListener('click',()=>{
   const st=document.getElementById('utilStatus');
